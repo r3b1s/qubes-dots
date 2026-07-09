@@ -1,0 +1,39 @@
+# x11-dots i3 config — entry point.
+# Migrated from the hyprland setup in omarchy-overrides; see README.md for
+# the full mapping and the list of intentionally dropped binds.
+#
+# Variables must be defined before the includes so every module can use them.
+
+# ── variables ─────────────────────────────────────────────────────────────
+
+set $mod Mod4
+set $term i3-sensible-terminal
+set $bin ~/.local/bin
+set $browser brave-origin-beta
+
+# ── general ───────────────────────────────────────────────────────────────
+
+# Matches the "i3 mode" preset from the hyprland setup:
+# gaps inner 5 / outer 10, 6px borders, no titlebars.
+font pango:monospace 10
+default_border pixel 6
+default_floating_border pixel 6
+gaps inner 5
+gaps outer 10
+
+# Named-workspace toggling is handled by x11-ws-app, not globally, so that
+# the numbered workspace keys keep their non-toggling hyprland behavior.
+workspace_auto_back_and_forth no
+
+floating_modifier $mod
+focus_follows_mouse yes
+
+# ── autostart ─────────────────────────────────────────────────────────────
+
+exec --no-startup-id dunst
+exec --no-startup-id numlockx on
+exec --no-startup-id xss-lock -- $bin/x11-lock
+
+# ── modules ───────────────────────────────────────────────────────────────
+
+include conf.d/*.conf

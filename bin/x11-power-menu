@@ -1,0 +1,13 @@
+#!/bin/sh
+# System menu via dmenu: lock / suspend / logout / reboot / poweroff.
+set -eu
+
+choice=$(printf 'lock\nsuspend\nlogout\nreboot\npoweroff\n' | dmenu -i -p 'system:') || exit 0
+
+case "$choice" in
+    lock)     exec "$HOME/.local/bin/x11-lock" ;;
+    suspend)  exec systemctl suspend ;;
+    logout)   exec i3-msg exit ;;
+    reboot)   exec systemctl reboot ;;
+    poweroff) exec systemctl poweroff ;;
+esac

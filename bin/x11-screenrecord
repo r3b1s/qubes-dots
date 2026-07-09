@@ -1,0 +1,53 @@
+#!/bin/sh
+# x11-screenrecord [--gif|--stop]
+#
+# Toggle a full-screen recording via ffmpeg x11grab. Running it again (or
+# with --stop) ends the recording. --gif converts the result to a gif when
+# the recording stops (gifrecord replacement).
+#
+# Video only by default; add e.g. `-f pulse -i default` to the ffmpeg
+# invocation below for microphone audio.
+set -eu
+
+RUN="${XDG_RUNTIME_DIR:-/tmp}"
+PIDFILE="$RUN/x11-screenrecord.pid"
+METAFILE="$RUN/x11-screenrecord.meta"
+OUTDIR="${XDG_VIDEOS_DIR:-$HOME/Videos}"
+
+stop_recording() {
+    pid=$(cat "$PIDFILE")
+    read -r out kind < "$METAFILE"
+    rm -f "$PIDFILE" "$METAFILE"
+
+    kill -INT "$pid" 2>/dev/null || true
+    while kill -0 "$pid" 2>/dev/null; do sleep 0.2; done
+
+    if [ "$kind" = "gif" ]; then
+        gif="${out%.mp4}.gif"
+        ffmpeg -loglevel error -y -i "$out" \
+            -vf 'fps=12,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse' \
+            "$gif"
+        rm -f "$out"
+        out="$gif"
+    fi
+    dunstify -a x11-screenrecord "Recording saved" "$out"
+}
+
+if [ -e "$PIDFILE" ] || [ "${1:-}" = "--stop" ]; then
+    [ -e "$PIDFILE" ] && stop_recording
+    exit 0
+fi
+
+mkdir -p "$OUTDIR"
+out="$OUTDIR/screenrecording-$(date +%Y-%m-%d_%H-%M-%S).mp4"
+kind="mp4"
+[ "${1:-}" = "--gif" ] && kind="gif"
+
+resolution=$(xdpyinfo | awk '/dimensions:/ {print $2; exit}')
+
+printf '%s %s\n' "$out" "$kind" > "$METAFILE"
+ffmpeg -loglevel error -f x11grab -framerate 30 -video_size "$resolution" \
+    -i "${DISPLAY:-:0}" -codec:v libx264 -preset veryfast -pix_fmt yuv420p \
+    "$out" &
+echo $! > "$PIDFILE"
+dunstify -a x11-screenrecord "Recording started" "$out"

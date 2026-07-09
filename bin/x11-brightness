@@ -1,0 +1,18 @@
+#!/bin/sh
+# x11-brightness up|down|up-fine|down-fine|max|min
+#
+# brightnessctl control with a dunst progress-bar OSD.
+set -eu
+
+case "${1:-}" in
+    up)        brightnessctl -q set +5% ;;
+    down)      brightnessctl -q set 5%- ;;
+    up-fine)   brightnessctl -q set +1% ;;
+    down-fine) brightnessctl -q set 1%- ;;
+    max)       brightnessctl -q set 100% ;;
+    min)       brightnessctl -q set 1% ;;
+    *) echo "usage: x11-brightness up|down|up-fine|down-fine|max|min" >&2; exit 1 ;;
+esac
+
+pct=$(( $(brightnessctl get) * 100 / $(brightnessctl max) ))
+dunstify -a x11-brightness -u low -r 9992 -h "int:value:$pct" "Brightness: ${pct}%"

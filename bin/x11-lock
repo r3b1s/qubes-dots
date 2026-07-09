@@ -1,0 +1,3 @@
+#!/bin/sh
+# Lock the screen. -n keeps i3lock in the foreground so xss-lock can track it.
+exec i3lock -n -c 000000

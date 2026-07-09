@@ -1,0 +1,15 @@
+#!/bin/sh
+# Toggle nightlight via redshift one-shot mode (hyprsunset replacement).
+set -eu
+
+STATE="${XDG_RUNTIME_DIR:-/tmp}/x11-nightlight.on"
+
+if [ -e "$STATE" ]; then
+    redshift -x >/dev/null
+    rm -f "$STATE"
+    dunstify -a x11-nightlight -r 9993 "Nightlight off"
+else
+    redshift -P -O 4000 >/dev/null
+    touch "$STATE"
+    dunstify -a x11-nightlight -r 9993 "Nightlight on (4000K)"
+fi
