@@ -17,6 +17,32 @@
 
 set -euo pipefail
 
+print_help() {
+    cat <<'EOF'
+Usage: CLONE_TARS="<url1,url2,...>" ./dom0-clone-dots.sh
+
+Run in dom0. Installs git in the "personal" AppVM, clones each URL in
+CLONE_TARS into /home/user/Dots there, then tar-copies that directory
+back into this dom0 user's home directory.
+
+Environment:
+  CLONE_TARS   comma-separated list of git URLs (https or ssh) to clone
+
+Options:
+  -h, --help   show this help text and exit
+
+Note: the git install only persists for this AppVM's current run — its
+root filesystem resets to the TemplateVM's on next start.
+EOF
+}
+
+case "${1:-}" in
+    -h|--help)
+        print_help
+        exit 0
+        ;;
+esac
+
 VM=personal
 DOTS_DIR=/home/user/Dots
 

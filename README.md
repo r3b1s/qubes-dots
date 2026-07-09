@@ -10,6 +10,20 @@ config launches no desktop applications locally: every app keybind runs its
 application inside a named AppVM through `qvm-run`, and anything needing a
 package beyond the dom0 baseline is kept out of the loaded config entirely.
 
+## Initial install
+
+Paste this into a dom0 terminal to install git, clone this repo (and any
+others you list) into `/home/user/Dots` on your `personal` AppVM, then pull
+the whole `Dots` directory back into dom0 — see `dom0-clone-dots.sh` for
+the equivalent script form:
+
+```bash
+VM=personal; DOTS=/home/user/Dots; CLONE_TARS="https://<your-repo-url>"; qvm-run --pass-io "$VM" "sudo dnf install -y git" && qvm-run --pass-io "$VM" "mkdir -p $DOTS" && IFS=',' read -ra U <<< "$CLONE_TARS" && for u in "${U[@]}"; do qvm-run --pass-io "$VM" "git -C $DOTS clone '$u'"; done && qvm-run --pass-io "$VM" "tar -cf - -C $(dirname "$DOTS") $(basename "$DOTS")" | tar -xf - -C "$HOME"
+```
+
+Edit `CLONE_TARS` to your own repo URL(s) first. Then run `./install.sh`
+from the cloned copy in dom0.
+
 ## Layout
 
 ```
