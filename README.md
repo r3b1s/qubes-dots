@@ -27,21 +27,70 @@ from the cloned copy in dom0.
 ## Layout
 
 ```
-i3/config          entry point: variables, general settings, autostart
+i3/config          entry point: variables + the conf.d include
 i3/conf.d/         modules loaded via i3's `include` — always active
-  10-core.conf     focus / move / resize / layouts / fullscreen / floating
+  00-qubes-base.conf  vendored Qubes defaults: VM label colours, bar, autostart
+  10-core.conf     general settings, focus / move / resize / layouts / floating
   20-workspaces.conf  numbered + named workspaces, window routing
-  30-apps.conf     dmenu launchers, terminals, dunst binds
+  30-apps.conf     launchers, terminals, dunst binds, volume keys
   40-modes.conf    gaps / passthru modes
-  60-bar.conf      i3bar + toggle
   70-qube-apps.conf   AppVM name variables + every app-launching bind
 i3/risky-utilities/   reference only, never auto-included
-  risky_media.conf     volume, brightness, playback, nightlight, capture
+  risky_media.conf     brightness, playback, nightlight, capture
   risky_clipboard.conf color picker, clipboard wipe
 bin/               helper scripts (x11-* prefix), symlinked to ~/.local/bin
 dunst/dunstrc      notifications
 install.sh         symlinks everything into place (user-agnostic, re-runnable)
 ```
+
+## Layering on the Qubes defaults
+
+`install.sh` symlinks `i3/` over `~/.config/i3`, and i3 reads
+`~/.config/i3/config` *instead of* `/etc/i3/config` — never both. Qubes ships
+its config **as** `/etc/i3/config`, so nothing from the `i3-settings-qubes`
+package reaches us implicitly. `conf.d/00-qubes-base.conf` carries the parts
+of it we keep, verbatim, and sorts first in the glob.
+
+That ordering is load-bearing, because i3's override rules are not uniform:
+
+| Directive | On conflict |
+| --- | --- |
+| `bindsym` / `bindcode` | **first** wins; duplicates are a config error |
+| `bar { }` | **first** wins, even with a matching `id` |
+| `exec` / `exec_always` | accumulate; cannot be removed |
+| `font`, `gaps`, `client.*`, `focus_follows_mouse` | **last** wins |
+| `for_window`, `assign` | accumulate |
+
+i3 has no `unbindsym` (that is a sway directive), so a later `bindsym` can
+never override an earlier one. Our modules therefore never redeclare a bind or
+a `bar` block that `00-qubes-base.conf` already declares — they only override
+scalar settings, which the base file's header lists explicitly.
+
+Re-check the vendored copy whenever `i3-settings-qubes` updates:
+
+```sh
+diff <(sed -n '/## VARS BEGIN/,$p' /etc/i3/config) i3/conf.d/00-qubes-base.conf
+```
+
+### What the baseline gives us
+
+Beyond the bar and the autostart execs, the pieces worth naming:
+
+- **VM label colours.** The 45 `client.<label>` lines are a Qubes patch to i3;
+  stock i3 rejects them outright. They colour each window's border by the
+  owning qube's label. Borders stay at i3's `normal` so the titlebar keeps
+  showing the qube name — together those are Qubes' window trust indicator,
+  which is why there is no border-width bind.
+- **`qubes-i3-sensible-terminal`.** `$mod+Shift+t` opens a terminal in the
+  domain of the *focused window*, not a dom0 shell; `$mod+Shift+Return` opens
+  a disposable console into it.
+- **`qubes-app-menu`** on `$mod+Shift+d`, and `j4-dmenu-desktop` on
+  `$mod+Return` with upstream's exact arguments — `--term=` is what makes a
+  terminal-type `.desktop` entry open inside its own qube.
+- **`qubes-i3-xdg-autostart`**, which upstream notes is needed for transient
+  VMs to come up.
+- **Tor Browser floats** by title, to avoid screen-size fingerprinting, and
+  `zenity` dialogs float rather than tiling into the layout.
 
 ## Install
 
@@ -50,11 +99,12 @@ install.sh         symlinks everything into place (user-agnostic, re-runnable)
 ```
 
 Required: `i3` and `i3-settings-qubes`, and nothing else. Between them (plus
-dom0's own default packages) they supply `dmenu`, `dunst`, `i3lock`,
-`xss-lock`, `i3status`, `jq`, and `qvm-run`. The active config — `i3/config`
-and everything its `include conf.d/*.conf` picks up — is held to that
-baseline deliberately: no bind may need a package you'd otherwise have no
-reason to install in dom0.
+dom0's own default packages) they supply `dmenu`, `j4-dmenu-desktop`, `dunst`,
+`i3lock`, `xss-lock`, `pactl`, `jq`, `qvm-run`, `qubes-app-menu`, and the
+`qubes-i3status` / `qubes-i3-sensible-terminal` / `qubes-i3-xdg-autostart`
+helpers. The active config — `i3/config` and everything its
+`include conf.d/*.conf` picks up — is held to that baseline deliberately: no
+bind may need a package you'd otherwise have no reason to install in dom0.
 
 ### Pointing the app binds at your AppVMs
 
@@ -108,13 +158,17 @@ either add an explicit `include risky-utilities/risky_media.conf` line to
   to i3's `fullscreen toggle` on both `$mod+f` and `$mod+Alt+f`.
 - **Submaps → i3 modes**, indicated in i3bar instead of notify-send.
 - **delta-resize script → native i3** `resize … 6 ppt`.
-- **walker/omarchy-menu → vanilla dmenu**: `$mod+Return` = i3-dmenu-desktop,
-  `$mod+space` = dmenu_run, `$mod+Escape` = power menu, keybind cheatsheet on
-  `$mod+Shift+Ctrl+Alt+k`.
+- **walker/omarchy-menu → Qubes' own menus**: `$mod+Return` = j4-dmenu-desktop
+  (upstream's invocation), `$mod+Shift+d` = qubes-app-menu, `$mod+space` =
+  dmenu_run for raw dom0 binaries, `$mod+Escape` = power menu, keybind
+  cheatsheet on `$mod+Shift+Ctrl+Alt+k`.
 - **mako → dunst** on the same `$mod+x` family; volume/brightness OSD is done
   with dunst progress notifications.
 - **Lock** is `$mod+Shift+Ctrl+Alt+l` (the old omarchy `$mod+Ctrl+l` slot is
-  taken by resize) plus the power menu; `xss-lock` covers suspend.
+  taken by resize) plus the power menu. Both run the baseline's `$lock`, and
+  `xss-lock --transfer-sleep-lock` covers suspend.
+- **`focus mode_toggle`** sits on `$mod+Shift+Ctrl+space`; upstream's
+  `$mod+space` slot is spent on `dmenu_run`.
 
 ## Intentionally dropped
 
@@ -133,6 +187,11 @@ decision, not an accident:
   menus, reminders, audio-output switcher — omarchy tooling
 - Moonlight focus toggle (`Shift+Ctrl+Alt+z`) — hyprland `sendshortcut` hack
 - Alt+Tab window cycling — no native i3 equivalent
+- **i3's scratchpad** (upstream's `$mod+minus` / `$mod+Shift+minus`) — named
+  workspaces cover the same ground and stay addressable in the bar, so
+  `$mod+minus` swaps to the bespoke `util2` workspace instead
+- border-width cycling — the window border is a Qubes trust indicator, so it
+  stays fixed at the `i3-settings-qubes` baseline
 - `lazydocker` (`$mod+Shift+d`), `easyeffects` + `wiremix` (`$mod+Shift+w`),
   `nmtui` wifi (`$mod+Ctrl+w`), `bluetui` bluetooth (`$mod+Alt+w`) — dom0
   owns no NIC, Bluetooth radio, docker daemon, or audio-effects stack for

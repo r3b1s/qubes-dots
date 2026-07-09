@@ -5,7 +5,8 @@ set -eu
 choice=$(printf 'lock\nsuspend\nlogout\nreboot\npoweroff\n' | dmenu -i -p 'system:') || exit 0
 
 case "$choice" in
-    lock)     exec "$HOME/.local/bin/x11-lock" ;;
+    # Same command as $lock in i3/conf.d/00-qubes-base.conf; keep them in sync.
+    lock)     exec i3lock --nofork -c 141414 ;;
     suspend)  exec systemctl suspend ;;
     logout)   exec i3-msg exit ;;
     reboot)   exec systemctl reboot ;;

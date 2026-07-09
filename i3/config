@@ -3,35 +3,21 @@
 # the full mapping and the list of intentionally dropped binds.
 #
 # Variables must be defined before the includes so every module can use them.
+#
+# conf.d/ loads in glob order, and that order is load-bearing:
+#   00-qubes-base.conf   the vendored Qubes defaults (colours, bar, autostart)
+#   10-…-70-…            our layer, which overrides base scalars (last wins)
+# i3 resolves duplicate `bindsym` and `bar` as FIRST wins and has no
+# `unbindsym`, so our modules never redeclare anything base already binds.
 
 # ── variables ─────────────────────────────────────────────────────────────
 
 set $mod Mod4
-set $term i3-sensible-terminal
 set $bin ~/.local/bin
 
-# ── general ───────────────────────────────────────────────────────────────
-
-# Matches the "i3 mode" preset from the hyprland setup:
-# gaps inner 5 / outer 10, 6px borders, no titlebars.
-font pango:monospace 10
-default_border pixel 6
-default_floating_border pixel 6
-gaps inner 5
-gaps outer 10
-
-# Named-workspace toggling is handled by x11-ws-app, not globally, so that
-# the numbered workspace keys keep their non-toggling hyprland behavior.
-workspace_auto_back_and_forth no
-
-floating_modifier $mod
-focus_follows_mouse yes
-
-# ── autostart ─────────────────────────────────────────────────────────────
-
-exec --no-startup-id dunst
-exec --no-startup-id numlockx on
-exec --no-startup-id xss-lock -- $bin/x11-lock
+# The terminal is $terminal, from 00-qubes-base.conf: it opens in the domain of
+# the focused window rather than in a dom0 shell. $dom0_term (10-core.conf) is
+# the plain dom0 terminal, for the binds that must pass `-e <cmd>`.
 
 # ── modules ───────────────────────────────────────────────────────────────
 

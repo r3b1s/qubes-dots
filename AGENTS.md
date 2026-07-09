@@ -15,6 +15,22 @@ rice. Resist adding visual styling unless asked.
   symlinked into `~/.local/bin` by `install.sh`.
 - i3 config is modular via `include conf.d/*.conf`; variables are defined
   in `i3/config` before the includes.
+- **`conf.d/00-qubes-base.conf` is a vendored copy of the official
+  `i3-settings-qubes` config** (`/etc/i3/config`) and must stay faithful to
+  it. i3 reads `~/.config/i3/config` *instead of* `/etc/i3/config`, so those
+  defaults only reach us through that file. Never delete a `client.<label>`
+  colour line, the `bar` block, the `for_window` rules, or an `exec` from it
+  without saying why in its header's "Deliberately NOT carried over" list.
+- **Glob order in `conf.d/` is load-bearing.** i3 resolves duplicate
+  `bindsym` and `bar` declarations as *first* wins and has no `unbindsym`;
+  scalar settings (`font`, `gaps`, `client.*`) are *last* wins; `exec` lines
+  accumulate and cannot be removed. So `00-` supplies binds/bar/execs, and
+  later modules may override scalars but must never redeclare a bind or a
+  `bar` block the base already declares. Validate with
+  `i3 -C -c "$PWD/i3/config"` — it must report no duplicate keybindings.
+- Window borders are a Qubes trust indicator (titlebar = qube name, border
+  colour = qube label), not a style knob. Leave `default_border` at i3's
+  `normal` and do not add binds that change border width.
 - **`conf.d/` is always-on and must stay within the dom0 baseline** of
   `i3` + `i3-settings-qubes`. Nothing under it may launch a desktop
   application locally — app launches go through `qvm-run` into an AppVM,
