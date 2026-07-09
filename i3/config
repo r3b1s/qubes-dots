@@ -1,4 +1,4 @@
-# x11-dots i3 config — entry point.
+# qubes-dots i3 config — entry point, for dom0 on Qubes OS.
 # Migrated from the hyprland setup in omarchy-overrides; see README.md for
 # the full mapping and the list of intentionally dropped binds.
 #
@@ -9,7 +9,6 @@
 set $mod Mod4
 set $term i3-sensible-terminal
 set $bin ~/.local/bin
-set $browser brave-origin-beta
 
 # ── general ───────────────────────────────────────────────────────────────
 

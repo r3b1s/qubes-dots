@@ -1,20 +1,29 @@
-# x11-dots
+# qubes-dots
 
 i3wm + dmenu + dunst + i3lock port of the hyprland keybinding setup from
-[omarchy-overrides](../omarchy-overrides). These are portable dots for
-contiguous *functionality*, not a port of the rice.
+[omarchy-overrides](../omarchy-overrides), targeting **dom0** on Qubes OS.
+These are portable dots for contiguous *functionality*, not a port of the
+rice.
+
+Dom0 is meant to stay free of untrusted application code, so the active
+config launches no desktop applications locally: every app keybind runs its
+application inside a named AppVM through `qvm-run`, and anything needing a
+package beyond the dom0 baseline is kept out of the loaded config entirely.
 
 ## Layout
 
 ```
 i3/config          entry point: variables, general settings, autostart
-i3/conf.d/         modules loaded via i3's `include`
+i3/conf.d/         modules loaded via i3's `include` — always active
   10-core.conf     focus / move / resize / layouts / fullscreen / floating
   20-workspaces.conf  numbered + named workspaces, window routing
-  30-apps.conf     dmenu launchers, terminals, apps, dunst binds
-  40-modes.conf    gaps / browser-profiles / passthru modes
-  50-media.conf    volume, brightness, playback, capture
+  30-apps.conf     dmenu launchers, terminals, dunst binds
+  40-modes.conf    gaps / passthru modes
   60-bar.conf      i3bar + toggle
+  70-qube-apps.conf   AppVM name variables + every app-launching bind
+i3/risky-utilities/   reference only, never auto-included
+  risky_media.conf     volume, brightness, playback, nightlight, capture
+  risky_clipboard.conf color picker, clipboard wipe
 bin/               helper scripts (x11-* prefix), symlinked to ~/.local/bin
 dunst/dunstrc      notifications
 install.sh         symlinks everything into place (user-agnostic, re-runnable)
@@ -26,15 +35,47 @@ install.sh         symlinks everything into place (user-agnostic, re-runnable)
 ./install.sh
 ```
 
-Required: `i3` (>= 4.22 for `include` + gaps), `dmenu`, `dunst` (provides
-`dunstify`/`dunstctl`), `i3lock`, `jq`, `i3status`.
+Required: `i3` and `i3-settings-qubes`, and nothing else. Between them (plus
+dom0's own default packages) they supply `dmenu`, `dunst`, `i3lock`,
+`xss-lock`, `i3status`, `jq`, and `qvm-run`. The active config — `i3/config`
+and everything its `include conf.d/*.conf` picks up — is held to that
+baseline deliberately: no bind may need a package you'd otherwise have no
+reason to install in dom0.
 
-Per-feature (only needed by the binds that use them): `xss-lock` (lock on
-suspend/idle), `maim` + `xclip` (screenshots), `ffmpeg` + `xdpyinfo`
-(recording), `playerctl`, `pactl`, `brightnessctl`, `redshift` (nightlight),
-`numlockx`, `xcolor` (color picker), `perl` (for `i3-dmenu-desktop`).
+### Pointing the app binds at your AppVMs
 
-The default browser is a variable (`set $browser`) in `i3/config`.
+Every application keybind lives in `i3/conf.d/70-qube-apps.conf` and runs
+through `qvm-run -a "$vm_…" -- <command>`. The file opens with a block of VM
+names:
+
+```
+set $vm_browser personal-browsing
+set $vm_chat personal-chat
+set $vm_vault personal-vault
+set $vm_notes personal-notes
+set $vm_media personal-media
+set $browser_bin brave-origin-beta
+```
+
+**These are placeholders.** Edit them to match your real AppVMs (and the
+browser binary as it's named inside `$vm_browser`) before the app binds do
+anything but produce `qvm-run` errors. No other file needs to change.
+
+Windows opened this way still report their application's own `WM_CLASS`
+through Qubes' GUI virtualization, so the `assign` rules in the same file
+route them to the right workspace exactly as a local process would.
+
+### Opting into a risky utility
+
+Volume/brightness OSD, screenshots, screen recording, nightlight, the color
+picker, and clipboard wipe each need packages beyond the baseline, so they
+ship inert under `i3/risky-utilities/` as `risky_<name>.conf`. That
+directory sits outside `conf.d/`, so `include conf.d/*.conf` can never pick
+it up by accident.
+
+To enable one: install its packages (each file's header lists them), then
+either add an explicit `include risky-utilities/risky_media.conf` line to
+`i3/config`, or copy the section you want into a file under `conf.d/`.
 
 ## Key migration decisions
 
@@ -78,11 +119,23 @@ decision, not an accident:
   menus, reminders, audio-output switcher — omarchy tooling
 - Moonlight focus toggle (`Shift+Ctrl+Alt+z`) — hyprland `sendshortcut` hack
 - Alt+Tab window cycling — no native i3 equivalent
+- `lazydocker` (`$mod+Shift+d`), `easyeffects` + `wiremix` (`$mod+Shift+w`),
+  `nmtui` wifi (`$mod+Ctrl+w`), `bluetui` bluetooth (`$mod+Alt+w`) — dom0
+  owns no NIC, Bluetooth radio, docker daemon, or audio-effects stack for
+  these to manage
+- `nautilus` (`$mod+e`), `tmux-sessionizer` (`$mod+Ctrl+t`), `inputbox`
+  (`$mod+q`), `gnome-calculator` (`XF86Calculator`) — omarchy-era personal
+  workflow with no qubes equivalent
+- `bin/x11-webapp` — webapp binds now hand the URL to the browser AppVM's
+  own `xdg-open`, which loses the chromeless `--app=` window
+- `btop` (`$mod+p`, `$mod+Alt+p`) — kept as a workspace bind, but switched to
+  plain `top`, which dom0 already ships; the direct-launch `$mod+Alt+p`
+  variant is gone
 
 ## Notes
 
 - `assign` rules route app windows to their named workspaces; X11 `WM_CLASS`
   values vary by packaging — verify with `xprop WM_CLASS` and adjust in
-  `20-workspaces.conf`.
+  `70-qube-apps.conf`.
 - `$mod+Alt+t` opens a terminal in this repo by resolving the `~/.config/i3`
   symlink, so it works wherever the repo is cloned.
