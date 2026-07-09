@@ -1,0 +1,195 @@
+#!/bin/sh
+# Apply the display layout in ~/.config/i3/monitor.conf with xrandr.
+#
+# i3 does no mode-setting, so this is the X11 stand-in for hyprland's
+# `monitor=` lines. i3 runs it via `exec_always` (conf.d/05-monitors.conf), so
+# it must be safe to re-run; it exits early when the outputs already match.
+#
+# Usage: x11-monitor [-f]
+#   -f   re-apply even when nothing has changed
+set -eu
+
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/i3/monitor.conf"
+STAMP="${XDG_RUNTIME_DIR:-/tmp}/x11-monitor.stamp"
+
+force=0
+[ "${1:-}" = "-f" ] && force=1
+
+[ -r "$CONF" ] || { echo "x11-monitor: cannot read $CONF" >&2; exit 1; }
+
+# One snapshot for the whole run: every lookup below reads the same text, so
+# the `*` (active) and `+` (preferred) markers stay consistent with each other.
+QUERY=$(xrandr --query)
+
+connected() {
+    printf '%s\n' "$QUERY" | awk '$2 == "connected" { print $1 }'
+}
+
+# Disconnected outputs that X still has enabled — i.e. a display was unplugged.
+stale() {
+    printf '%s\n' "$QUERY" |
+        awk '$2 == "disconnected" && $3 ~ /^[0-9]+x[0-9]+\+/ { print $1 }'
+}
+
+modes() {
+    printf '%s\n' "$QUERY" | awk -v out="$1" '
+        $1 == out && $2 == "connected" { inblk = 1; next }
+        /^[^ \t]/                      { inblk = 0 }
+        inblk && $1 ~ /^[0-9]+x[0-9]+$/ { print }
+    '
+}
+
+# The resolution xrandr marks `+`: the EDID-preferred one, i.e. the panel's
+# native mode. Falls back to the first listed, which xrandr sorts highest-first.
+preferred_res() {
+    modes "$1" | awk '
+        { if (first == "") first = $1
+          for (i = 2; i <= NF; i++) if (index($i, "+")) { print $1; found = 1; exit } }
+        END { if (!found && first != "") print first }
+    '
+}
+
+rates_for() {
+    modes "$1" | awk -v res="$2" '
+        $1 == res { for (i = 2; i <= NF; i++) { r = $i; gsub(/[*+]/, "", r); if (r != "") print r } }
+    '
+}
+
+# "res rate" of the mode currently driving the output; empty when it is off.
+active_mode() {
+    modes "$1" | awk '
+        { for (i = 2; i <= NF; i++) if (index($i, "*")) { r = $i; gsub(/[*+]/, "", r); print $1, r; exit } }
+    '
+}
+
+# The monitor.conf line governing $1, normalised to "mode,rate,pos,flag" with
+# defaults filled in. An output with no line of its own inherits the `*` line.
+rule_for() {
+    awk -v out="$1" '
+        function t(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+        function rec(line,   f, n, mode, rate, pos, flag) {
+            n = split(line, f, ",")
+            mode = (n >= 2 && t(f[2]) != "") ? t(f[2]) : "preferred"
+            rate = (n >= 3 && t(f[3]) != "") ? t(f[3]) : "highest"
+            pos  = (n >= 4 && t(f[4]) != "") ? t(f[4]) : "auto"
+            flag = (n >= 5) ? t(f[5]) : ""
+            return mode "," rate "," pos "," flag
+        }
+        { line = $0; sub(/#.*/, "", line) }
+        t(line) == "" { next }
+        { split(line, f, ",") }
+        t(f[1]) == out       { print rec(line); found = 1; exit }
+        t(f[1]) == "*" && star == "" { star = line }
+        END { if (!found) print rec(star) }
+    ' "$CONF"
+}
+
+# Highest rate offered for $2, or the one nearest a requested figure. The
+# nearest match is what lets monitor.conf say `144` for a mode xrandr calls
+# 143.91 — but only within 1 Hz, so a typo fails loudly instead of silently
+# landing on 60.
+resolve_rate() {
+    case "$3" in
+        highest)
+            rates_for "$1" "$2" |
+                awk '{ if ($1 + 0 > best + 0) best = $1 } END { if (best != "") print best }' ;;
+        *)
+            rates_for "$1" "$2" | awk -v want="$3" '
+                { d = $1 - want; if (d < 0) d = -d
+                  if (best == "" || d < bd) { bd = d; best = $1 } }
+                END { if (best != "" && bd < 1) print best }
+            ' ;;
+    esac
+}
+
+# ── first pass: which output is primary ───────────────────────────────────
+
+primary=""
+for out in $(connected); do
+    IFS=, read -r mode rate pos flag <<EOF
+$(rule_for "$out")
+EOF
+    if [ "$mode" = "off" ]; then
+        continue
+    elif [ "$flag" = "primary" ]; then
+        primary=$out
+        break
+    elif [ -z "$primary" ]; then
+        primary=$out
+    fi
+done
+
+# ── second pass: build the xrandr invocation ──────────────────────────────
+
+args=""
+prev=""
+changed=0
+
+for out in $(stale); do
+    args="$args --output $out --off"
+    changed=1
+done
+
+for out in $(connected); do
+    IFS=, read -r mode rate pos flag <<EOF
+$(rule_for "$out")
+EOF
+
+    if [ "$mode" = "off" ]; then
+        args="$args --output $out --off"
+        [ -n "$(active_mode "$out")" ] && changed=1
+        continue
+    fi
+
+    case "$mode" in
+        preferred) res=$(preferred_res "$out") ;;
+        *)         res=$mode ;;
+    esac
+    [ -n "$res" ] || { echo "x11-monitor: $out: no usable resolution" >&2; exit 1; }
+
+    offered=$(rates_for "$out" "$res" | tr '\n' ' ')
+    [ -n "$offered" ] || {
+        echo "x11-monitor: $out: does not offer $res; it offers:" >&2
+        modes "$out" | awk '{ print "  " $1 }' >&2
+        exit 1
+    }
+
+    hz=$(resolve_rate "$out" "$res" "$rate")
+    [ -n "$hz" ] || {
+        echo "x11-monitor: $out: no ${rate}Hz mode at $res; it offers: $offered" >&2
+        exit 1
+    }
+
+    args="$args --output $out --mode $res --rate $hz"
+    [ "$out" = "$primary" ] && args="$args --primary"
+
+    case "$pos" in
+        auto)
+            if [ -z "$prev" ]; then args="$args --pos 0x0"
+            else                    args="$args --right-of $prev"
+            fi ;;
+        [0-9]*x[0-9]*)
+            args="$args --pos $pos" ;;
+        "right-of "*|"left-of "*|"above "*|"below "*|"same-as "*)
+            args="$args --${pos%% *} ${pos#* }" ;;
+        *)
+            echo "x11-monitor: $out: bad position '$pos'" >&2; exit 1 ;;
+    esac
+
+    [ "$(active_mode "$out")" = "$res $hz" ] || changed=1
+    prev=$out
+done
+
+[ -n "$args" ] || exit 0
+
+# Positions aren't read back, so a monitor.conf edit that only moves an output
+# would look unchanged. Stamping the arguments catches that: the stamp differs
+# whenever the desired layout does.
+if [ "$force" -eq 0 ] && [ "$changed" -eq 0 ] &&
+   [ "$(cat "$STAMP" 2>/dev/null || true)" = "$args" ]; then
+    exit 0
+fi
+
+# shellcheck disable=SC2086 # $args is a deliberately word-split argument list
+xrandr $args
+printf '%s' "$args" > "$STAMP"

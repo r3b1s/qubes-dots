@@ -28,8 +28,10 @@ from the cloned copy in dom0.
 
 ```
 i3/config          entry point: variables + the conf.d include
+i3/monitor.conf    display layout: resolution, refresh rate, arrangement
 i3/conf.d/         modules loaded via i3's `include` — always active
   00-qubes-base.conf  vendored Qubes defaults: VM label colours, autostart
+  05-monitors.conf    applies monitor.conf through bin/x11-monitor
   10-core.conf     general settings, focus / move / resize / layouts / floating
   15-bar.conf      the i3bar: upstream's block, moved here and pinned to the top
   20-workspaces.conf  numbered + named workspaces, window routing
@@ -112,6 +114,44 @@ dom0's own default packages) they supply `dmenu`, `j4-dmenu-desktop`, `dunst`,
 helpers. The active config — `i3/config` and everything its
 `include conf.d/*.conf` picks up — is held to that baseline deliberately: no
 bind may need a package you'd otherwise have no reason to install in dom0.
+`bin/x11-monitor` additionally uses `xrandr`, which dom0 already ships.
+
+### Monitors and refresh rate
+
+i3 does no mode-setting, so resolution and refresh rate are xrandr's job.
+`i3/monitor.conf` describes the layout declaratively — it is the stand-in for
+hyprland's `monitor=` lines — and `conf.d/05-monitors.conf` applies it through
+`bin/x11-monitor` on every startup and reload.
+
+The shipped default needs no editing and names no output:
+
+```
+*,preferred,highest,auto
+```
+
+`preferred` is the resolution xrandr marks `+`, which is the panel's native
+one; `highest` is the fastest refresh rate that resolution offers. A 144 Hz
+monitor therefore comes up at 144 Hz on its own — this is hyprland's
+`monitor=,preferred,highrr,auto`. `auto` puts the first output at `0x0` and
+each subsequent one to its right.
+
+Override per output by naming it, in `<output>,<resolution>,<rate>,<position>,<flag>`:
+
+```
+DP-1,2560x1440,144,0x0,primary
+HDMI-1,preferred,60,left-of DP-1
+eDP-1,off
+```
+
+Rates match within 1 Hz, so writing `144` finds the mode xrandr calls
+`143.91`; you never have to copy decimals out of `xrandr --query`. A rate the
+output cannot do is an error rather than a silent fall back to 60 Hz. Position
+also takes `right-of` / `above` / `below` / `same-as <output>`, the last of
+which mirrors.
+
+The script skips xrandr entirely when the outputs already match, so an
+`i3-msg reload` does not flash the screen. After editing `monitor.conf`,
+reload i3, or run `x11-monitor -f` to force a re-apply.
 
 ### Pointing the app binds at your AppVMs
 

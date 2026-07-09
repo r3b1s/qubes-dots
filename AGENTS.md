@@ -34,6 +34,11 @@ rice. Resist adding visual styling unless asked.
   anywhere spawns a second bar rather than overriding the first, even with a
   matching `id`, so a `bar` can only be changed where it is declared. That is
   why it sits in our layer instead of the vendored copy.
+- **Display layout lives in `i3/monitor.conf`**, applied by `bin/x11-monitor`
+  from `conf.d/05-monitors.conf`. It is not i3 syntax and sits outside
+  `conf.d/` so the glob cannot reach it. i3 does no mode-setting, so refresh
+  rate and monitor arrangement go through xrandr there, never into a conf.d
+  module.
 - Window borders are a Qubes trust indicator (titlebar = qube name, border
   colour = qube label), not a style knob. Leave `default_border` at i3's
   `normal` and do not add binds that change border width.
