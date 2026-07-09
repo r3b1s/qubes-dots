@@ -19,15 +19,21 @@ rice. Resist adding visual styling unless asked.
   `i3-settings-qubes` config** (`/etc/i3/config`) and must stay faithful to
   it. i3 reads `~/.config/i3/config` *instead of* `/etc/i3/config`, so those
   defaults only reach us through that file. Never delete a `client.<label>`
-  colour line, the `bar` block, the `for_window` rules, or an `exec` from it
-  without saying why in its header's "Deliberately NOT carried over" list.
+  colour line, the `for_window` rules, or an `exec` from it without saying why
+  in its header's "Deliberately NOT carried over" list. Upstream's `bar` block
+  is already listed there: it now lives in `conf.d/15-bar.conf`.
 - **Glob order in `conf.d/` is load-bearing.** i3 resolves duplicate
   `bindsym` and `bar` declarations as *first* wins and has no `unbindsym`;
   scalar settings (`font`, `gaps`, `client.*`) are *last* wins; `exec` lines
-  accumulate and cannot be removed. So `00-` supplies binds/bar/execs, and
-  later modules may override scalars but must never redeclare a bind or a
-  `bar` block the base already declares. Validate with
-  `i3 -C -c "$PWD/i3/config"` — it must report no duplicate keybindings.
+  accumulate and cannot be removed. So `00-` supplies binds/execs, and later
+  modules may override scalars but must never redeclare a bind the base
+  already declares. Validate with `i3 -C -c "$PWD/i3/config"` — it must report
+  no duplicate keybindings, and nothing but `Could not parse color: <label>`,
+  which is stock i3 rejecting the Qubes label-colour patch.
+- **There is exactly one `bar` block, in `conf.d/15-bar.conf`.** A second one
+  anywhere spawns a second bar rather than overriding the first, even with a
+  matching `id`, so a `bar` can only be changed where it is declared. That is
+  why it sits in our layer instead of the vendored copy.
 - Window borders are a Qubes trust indicator (titlebar = qube name, border
   colour = qube label), not a style knob. Leave `default_border` at i3's
   `normal` and do not add binds that change border width.

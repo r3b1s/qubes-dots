@@ -29,8 +29,9 @@ from the cloned copy in dom0.
 ```
 i3/config          entry point: variables + the conf.d include
 i3/conf.d/         modules loaded via i3's `include` — always active
-  00-qubes-base.conf  vendored Qubes defaults: VM label colours, bar, autostart
+  00-qubes-base.conf  vendored Qubes defaults: VM label colours, autostart
   10-core.conf     general settings, focus / move / resize / layouts / floating
+  15-bar.conf      the i3bar: upstream's block, moved here and pinned to the top
   20-workspaces.conf  numbered + named workspaces, window routing
   30-apps.conf     launchers, terminals, dunst binds, volume keys
   40-modes.conf    gaps / passthru modes
@@ -62,11 +63,17 @@ That ordering is load-bearing, because i3's override rules are not uniform:
 | `for_window`, `assign` | accumulate |
 
 i3 has no `unbindsym` (that is a sway directive), so a later `bindsym` can
-never override an earlier one. Our modules therefore never redeclare a bind or
-a `bar` block that `00-qubes-base.conf` already declares — they only override
-scalar settings, which the base file's header lists explicitly.
+never override an earlier one. Our modules therefore never redeclare a bind
+that `00-qubes-base.conf` already declares — they only override scalar
+settings, which the base file's header lists explicitly.
 
-Re-check the vendored copy whenever `i3-settings-qubes` updates:
+The `bar` block is the one thing that rule cannot accommodate: it is neither
+overridable nor removable from a later file, so wanting `position top` meant
+moving it out of the vendored copy entirely. It now lives, otherwise verbatim,
+in `conf.d/15-bar.conf`, and it is the only `bar` block in the config.
+
+Re-check the vendored copy whenever `i3-settings-qubes` updates — the missing
+`bar` block is the one hunk you should expect:
 
 ```sh
 diff <(sed -n '/## VARS BEGIN/,$p' /etc/i3/config) i3/conf.d/00-qubes-base.conf
