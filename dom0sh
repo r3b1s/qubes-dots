@@ -1,0 +1,24 @@
+#!/bin/sh
+# Run in the dev qube. Executes a shell command in dom0 over qrexec and prints
+# the result, exiting with dom0's exit status. Requires dev.Shell to be
+# installed there -- see dom0-install-devshell.sh.
+#
+# Usage:
+#   dom0sh 'qvm-ls --raw-data --fields NAME'   # command as an argument
+#   dom0sh < provision.sh                      # whole script on stdin
+#   echo 'qvm-prefs work' | dom0sh
+#
+# This is the loop: an agent in this qube edits a script here, pipes it to
+# dom0, and reads back stdout, stderr and exit status -- so it can see its own
+# failures and correct them without a network interface existing in dom0.
+#
+# No `set -e`: dom0's exit status is the whole point of this script, so a
+# failing command must reach `exit $?` rather than kill the shell on the way.
+set -u
+
+if [ $# -gt 0 ]; then
+    printf '%s\n' "$*" | qrexec-client-vm dom0 dev.Shell
+    exit $?
+fi
+
+exec qrexec-client-vm dom0 dev.Shell

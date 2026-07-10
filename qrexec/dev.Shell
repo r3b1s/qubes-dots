@@ -1,0 +1,17 @@
+#!/bin/sh
+# qrexec service, installed in dom0 at /etc/qubes-rpc/dev.Shell.
+#
+# Reads a shell script on stdin, runs it in dom0, streams the output back to
+# the calling qube. Exit status propagates. This is an unrestricted dom0 shell
+# for whichever qube the policy names -- see qrexec/30-dev-shell.policy.
+#
+# dom0 rpc services run as root, so $HOME is /root and there is no DISPLAY.
+# To act as the desktop user (i3-msg, xrandr, anything X11), wrap the payload:
+#   runuser -u user -- env DISPLAY=:0 i3-msg reload
+#
+# stderr is folded into stdout because qrexec only returns the data stream to
+# the caller; a service's stderr goes to dom0's journal, where an agent driving
+# this cannot see it, and a build error you cannot see is a build error you
+# will re-introduce.
+exec 2>&1
+exec /bin/sh -s

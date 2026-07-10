@@ -44,6 +44,15 @@ i3/risky-utilities/   reference only, never auto-included
 bin/               helper scripts (x11-* prefix), symlinked to ~/.local/bin
 dunst/dunstrc      notifications
 install.sh         symlinks everything into place (user-agnostic, re-runnable)
+
+qrexec/            the dom0 dev shell — see "Developing against dom0"
+  dev.Shell           qrexec service, installed to /etc/qubes-rpc/ in dom0
+  30-dev-shell.policy policy template; @DEV_VM@ is substituted at install time
+dom0-install-devshell.sh  installs both of the above (run in dom0, once)
+dom0sh             runs a command in dom0 over qrexec (run in the dev qube)
+install-dom0sh.sh  symlinks dom0sh into ~/.local/bin (run in the dev qube)
+dom0-clone-dots.sh clones this repo into an AppVM, tars it into dom0
+dom0-push-dots.sh  reverse: copies dom0 dirs back out to an AppVM, optional git push
 ```
 
 ## Layering on the Qubes defaults
@@ -187,6 +196,62 @@ it up by accident.
 To enable one: install its packages (each file's header lists them), then
 either add an explicit `include risky-utilities/risky_media.conf` line to
 `i3/config`, or copy the section you want into a file under `conf.d/`.
+
+## Developing against dom0
+
+Dom0 has no network interface — not firewalled, absent — so there is no SSH
+into it and never will be. The supported channel is qrexec, which is what
+`dom0-clone-dots.sh` and `dom0-push-dots.sh` already use to move files.
+
+That covers file transfer. What it does not cover is *iterating*: writing a
+dom0 provisioning script somewhere with network and tooling, running it in
+dom0, and reading back what went wrong. `qrexec/dev.Shell` closes that gap. It
+is a dom0 service that reads a shell script on stdin, runs it, and streams
+stdout, stderr and exit status back to the calling qube.
+
+Install the dom0 half once, after `dom0-clone-dots.sh` has landed the repo:
+
+```sh
+# in dom0
+~/Dots/qubes-dots/dom0-install-devshell.sh <your-dev-qube>
+```
+
+Then the caller half, in the dev qube named above:
+
+```sh
+./install-dom0sh.sh
+dom0sh 'qvm-ls --raw-data --fields NAME'
+dom0sh < provision-work-vm.sh
+```
+
+`dom0-install-devshell.sh --uninstall` removes both files from dom0.
+
+### What this actually grants
+
+An unrestricted root shell in dom0, to one named qube, with no prompt. Dom0
+owns the hypervisor, the GUI, and every qube's disk, so this is total authority
+over the machine. It is the same capability `sshd` in dom0 would grant, minus
+the network interface and minus OpenSSH's attack surface — the exposed code is
+the twenty lines of `qrexec/dev.Shell` — but it is not *less* authority.
+
+Two properties are worth stating rather than discovering:
+
+- **`allow` means unattended.** Anything that reaches the dev qube reaches
+  dom0. If an agent runs there, then a web page it fetched or a repo it read
+  can reach dom0 too. Install with `--ask` to require a dom0 confirmation per
+  call; the prompt becomes muscle memory within a day, which is a real limit on
+  how much it buys you, but it is the difference between a mistake and an
+  unattended one.
+- **Services run as root**, so `$HOME` is `/root` and there is no `DISPLAY`.
+  `install.sh` under `dom0sh` would symlink into root's home, not yours. Wrap
+  anything user- or X11-facing:
+
+  ```sh
+  dom0sh 'runuser -u user -- env DISPLAY=:0 i3-msg reload'
+  ```
+
+The intended home for this is a test machine. It will work identically on a
+real one, which is the hazard: nothing about it will feel wrong there.
 
 ## Key migration decisions
 

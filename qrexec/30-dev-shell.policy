@@ -1,0 +1,10 @@
+# Installed in dom0 at /etc/qubes/policy.d/30-dev-shell.policy.
+#
+# Grants @DEV_VM@ unrestricted root shell in dom0. Sorts before the shipped
+# 90-default.policy, so this line wins.
+#
+# `allow` means no prompt: an agent, and anything that reaches an agent, runs
+# in dom0 unattended. Swap to `ask` to require a dom0 confirmation per call.
+#
+# Format: SERVICE ARGUMENT SOURCE DESTINATION ACTION
+dev.Shell	*	@DEV_VM@	dom0	allow
