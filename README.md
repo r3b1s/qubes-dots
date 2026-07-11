@@ -51,7 +51,8 @@ qrexec/            the dom0 dev shell — see "Developing against dom0"
 dom0-install-devshell.sh  installs both of the above (run in dom0, once)
 dom0sh             runs a command in dom0 over qrexec (run in the dev qube)
 install-dom0sh.sh  symlinks dom0sh into ~/.local/bin (run in the dev qube)
-dom0-clone-dots.sh clones this repo into an AppVM, tars it into dom0
+dom0-clone-dots.sh clones this repo into an AppVM, tars it into dom0  (bootstrap)
+dom0-sync-dots.sh  re-pulls it and swaps the tree in                  (iterate)
 dom0-push-dots.sh  reverse: copies dom0 dirs back out to an AppVM, optional git push
 ```
 
@@ -197,7 +198,38 @@ To enable one: install its packages (each file's header lists them), then
 either add an explicit `include risky-utilities/risky_media.conf` line to
 `i3/config`, or copy the section you want into a file under `conf.d/`.
 
+## Updating dom0 from your repo
+
+`dom0-clone-dots.sh` is the bootstrap — the first clone. `dom0-sync-dots.sh` is
+what you run the twentieth time. Both are plain dom0 scripts: run them from a
+dom0 terminal as your normal user, no root and no extra setup.
+
+```sh
+# in dom0
+~/Dots/qubes-dots/dom0-sync-dots.sh qubes-dots <source-vm> --install --reload
+```
+
+It runs `git pull --ff-only` inside the source AppVM, tar-copies the result
+back into `~/Dots`, then optionally re-runs that folder's `install.sh` and
+reloads i3. git stays in the AppVM; dom0 needs neither git nor a network
+interface. Sync several repos at once by comma-separating them, as with
+`dom0-push-dots.sh`.
+
+Sync is **one-way and wholesale**. Each folder is extracted beside the old one
+and swapped in, so a file deleted upstream disappears in dom0 too, and local
+edits under dom0's `~/Dots/<folder>` are destroyed. Edit in the AppVM and sync
+down; to go the other way, that is `dom0-push-dots.sh`. The swap happens only
+after the new tree lands whole, so an interrupted transfer leaves dom0's copy
+as it was rather than half-replaced.
+
+Because it pulls, dom0 sees only what you have **committed and pushed**.
+`--dirty` skips the pull and copies the AppVM's working tree as it stands,
+which is convenient while you are hand-editing.
+
 ## Developing against dom0
+
+Everything above stands on its own — skip this section entirely unless you want
+an agent, or anything else with a network connection, driving dom0.
 
 Dom0 has no network interface — not firewalled, absent — so there is no SSH
 into it and never will be. The supported channel is qrexec, which is what
@@ -225,6 +257,25 @@ dom0sh < provision-work-vm.sh
 ```
 
 `dom0-install-devshell.sh --uninstall` removes both files from dom0.
+
+### Driving the sync from the dev qube
+
+`dev.Shell` runs *commands* in dom0; it does not update the *files* there. That
+is [`dom0-sync-dots.sh`](#updating-dom0-from-your-repo), the same script you
+would run from a dom0 terminal, called through `dom0sh`:
+
+```sh
+dom0sh '/home/user/Dots/qubes-dots/dom0-sync-dots.sh qubes-dots dev --install --reload'
+```
+
+Note the absolute path: `dev.Shell` runs as root, so `~` there is `/root`, not
+your dom0 home. The script notices it is running as root and re-execs itself as
+the desktop user, so this lands where a dom0 terminal would put it. If your
+dom0 account is not named `user`, set `QUBES_USER` — and fix the path above.
+
+Prefer the default (pull, not `--dirty`) on this path. Dom0 then only ever sees
+what you have committed and pushed, and the commit is the only place you get to
+look at what you are about to run in dom0.
 
 ### What this actually grants
 
