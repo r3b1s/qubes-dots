@@ -170,12 +170,14 @@ through `qvm-run -a "$vm_…" -- <command>`. The file opens with a block of VM
 names:
 
 ```
-set $vm_browser personal-browsing
-set $vm_chat personal-chat
-set $vm_vault personal-vault
-set $vm_notes personal-notes
-set $vm_media personal-media
-set $browser_bin brave-origin-beta
+set $vm_default personal0
+set $vm_browser $vm_default
+set $vm_chat $vm_default
+set $vm_vault $vm_default
+set $vm_notes $vm_default
+set $vm_media $vm_default
+set $browser_bin_firefox firefox
+set $browser_bin_brave  brave-origin
 ```
 
 **These are placeholders.** Edit them to match your real AppVMs (and the

@@ -1,5 +1,5 @@
-# x11-dots dunst config (mako replacement) — functionality over rice.
-# Colors fall back to dunst's per-urgency defaults on purpose.
+# x11-dots dunst config — Dracula theme colours.
+# Per-urgency colours from the official Dracula dunst theme.
 
 [global]
     follow = keyboard
@@ -12,6 +12,9 @@
     format = "<b>%s</b>\n%b"
     show_indicators = yes
 
+    frame_color = "#bd93f9"
+    separator_color = frame
+
     # Action/context menus go through vanilla dmenu.
     dmenu = dmenu -i -p dunst:
     browser = xdg-open
@@ -21,10 +24,17 @@
     mouse_right_click = close_current
 
 [urgency_low]
+    background = "#282a36"
+    foreground = "#6272a4"
     timeout = 5
 
 [urgency_normal]
+    background = "#282a36"
+    foreground = "#f8f8f2"
     timeout = 8
 
 [urgency_critical]
+    background = "#ff5555"
+    foreground = "#f8f8f2"
+    frame_color = "#ff5555"
     timeout = 0

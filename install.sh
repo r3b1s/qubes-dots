@@ -20,6 +20,7 @@ link() {
 
 link "$REPO/i3" "$HOME/.config/i3"
 link "$REPO/dunst" "$HOME/.config/dunst"
+link "$REPO/wallpapers" "$HOME/.config/wallpapers"
 
 for script in "$REPO"/bin/*; do
     link "$script" "$HOME/.local/bin/$(basename "$script")"
