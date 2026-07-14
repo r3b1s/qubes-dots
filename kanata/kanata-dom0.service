@@ -1,0 +1,14 @@
+[Unit]
+Description=Kanata keyboard remapper (dom0)
+Documentation=https://github.com/jtroo/kanata
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/modprobe uinput
+ExecStart=/usr/local/bin/kanata --no-wait -c /etc/kanata/enthium.kbd
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
