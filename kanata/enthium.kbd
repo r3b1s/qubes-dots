@@ -1,0 +1,207 @@
+;; Enthium Keyboard Layout Configuration for Kanata
+;; Ported from keyd_enthium_layout.conf
+
+(defcfg
+  process-unmapped-keys yes
+  concurrent-tap-hold yes
+  ;; Only grab the physical keyboard in sys-usb; leave mice / power keys alone.
+  linux-dev-names-include (
+    "AT Translated Set 2 keyboard"
+  )
+)
+
+(defvar
+  ;; Streak detection
+  streak-count 3
+  tap-time 200
+  ;; Per-finger timing (hold-time / streak-time in ms)
+  pinky-hold 185
+  pinky-streak 250
+  ring-hold 185
+  ring-streak 250
+  mid-hold 150
+  mid-streak 200
+  index-hold 120
+  index-streak 180
+  ;; Thumb timing (spacebar, alt keys)
+  thumb-hold 150
+  thumb-streak 200
+)
+
+;; Flowtap home row mod template
+;; Streak detected → pure tap; otherwise tap-hold
+(deftemplate hrm (char mod hold-time streak-time)
+  (switch
+    ((key-timing $streak-count less-than $streak-time)) $char break
+    () (tap-hold $tap-time $hold-time $char $mod) break
+  )
+)
+
+;; Flowtap layer-hold template (spacebar, alt keys)
+;; Same pattern but hold activates a layer instead of a modifier
+(deftemplate streaktap (char layer hold-time streak-time)
+  (switch
+    ((key-timing $streak-count less-than $streak-time)) $char break
+    () (tap-hold $tap-time $hold-time $char (layer-while-held $layer)) break
+  )
+)
+
+;; ─── Aliases ───────────────────────────────────────────────────
+
+;; Miryoku QWERTY home row mods
+(defalias
+  mq-a (t! hrm a lmet $pinky-hold $pinky-streak)
+  mq-s (t! hrm s lalt $ring-hold $ring-streak)
+  mq-d (t! hrm d lctl $mid-hold $mid-streak)
+  mq-f (t! hrm f lsft $index-hold $index-streak)
+  mq-j (t! hrm j rsft $index-hold $index-streak)
+  mq-k (t! hrm k rctl $mid-hold $mid-streak)
+  mq-l (t! hrm l ralt $ring-hold $ring-streak)
+  mq-; (t! hrm ; rmet $pinky-hold $pinky-streak)
+)
+
+;; Enthium10 home row mods
+(defalias
+  en-a (t! hrm c lmet $pinky-hold $pinky-streak)
+  en-s (t! hrm i lalt $ring-hold $ring-streak)
+  en-d (t! hrm e lctl $mid-hold $mid-streak)
+  en-f (t! hrm a lsft $index-hold $index-streak)
+  en-j (t! hrm h rsft $index-hold $index-streak)
+  en-k (t! hrm t rctl $mid-hold $mid-streak)
+  en-l (t! hrm n ralt $ring-hold $ring-streak)
+  en-; (t! hrm s rmet $pinky-hold $pinky-streak)
+)
+
+;; Spacebar: streak-protected workspaces layer hold
+(defalias
+  spc (t! streaktap spc workspaces $thumb-hold $thumb-streak)
+  spc-ml (t! streaktap spc workspaces-moonlight $thumb-hold $thumb-streak)
+)
+
+;; Enthium10 alt keys: streak-protected layer holds
+(defalias
+  en-lalt (t! streaktap esc number $thumb-hold $thumb-streak)
+  en-ralt (t! streaktap r symbol $thumb-hold $thumb-streak)
+)
+
+;; Symbol layer activation (qwerty / miryoku-qwerty)
+(defalias
+  sym (layer-while-held symbol)
+)
+
+;; Shift keys: tap = one-shot shift, hold = normal shift
+(defalias
+  os-lsft (tap-hold $tap-time 200 (one-shot 2000 lsft) lsft)
+  os-rsft (tap-hold $tap-time 200 (one-shot 2000 rsft) rsft)
+)
+
+;; Enthium-moonlight home row mods (ralt replaces super, lalt on both rings)
+(defalias
+  ml-a (t! hrm c ralt $pinky-hold $pinky-streak)
+  ml-s (t! hrm i lalt $ring-hold $ring-streak)
+  ml-l (t! hrm n lalt $ring-hold $ring-streak)
+  ml-; (t! hrm s ralt $pinky-hold $pinky-streak)
+)
+
+;; Layout switching
+(defalias
+  to-qwerty    (layer-switch qwerty)
+  to-miryoku   (layer-switch miryoku-qwerty)
+  to-enthium   (layer-switch enthium10)
+  to-moonlight (layer-switch enthium-moonlight)
+)
+
+;; ─── Source (physical keyboard) ────────────────────────────────
+
+(defsrc
+  grv  1    2    3    4    5    6    7    8    9    0    -    =    bspc
+  tab  q    w    e    r    t    y    u    i    o    p    [    ]    \
+  caps a    s    d    f    g    h    j    k    l    ;    '    ret
+  lsft z    x    c    v    b    n    m    ,    .    /    rsft
+  lctl lmet lalt           spc            ralt rmet prnt rctl
+  up   down left rght
+)
+
+;; ─── Base Layouts ──────────────────────────────────────────────
+
+;; Plain QWERTY — no tap-hold behavior
+(deflayer qwerty
+  grv  1    2    3    4    5    6    7    8    9    0    -    =    bspc
+  tab  q    w    e    r    t    y    u    i    o    p    [    ]    \
+  caps a    s    d    f    g    h    j    k    l    ;    '    ret
+  lsft z    x    c    v    b    n    m    ,    .    /    rsft
+  lctl lmet lalt           @spc           @sym rmet rmet rctl
+  up   down left rght
+)
+
+;; QWERTY with Miryoku home row mods
+(deflayer miryoku-qwerty
+  grv  1    2    3    4    5    6    7    8    9    0    -    =    bspc
+  tab  q    w    e    r    t    y    u    i    o    p    [    ]    \
+  caps @mq-a @mq-s @mq-d @mq-f g   h    @mq-j @mq-k @mq-l @mq-; '  ret
+  lsft z    x    c    v    b    n    m    ,    .    /    rsft
+  lctl lmet lalt           @spc           @sym rmet rmet rctl
+  up   down left rght
+)
+
+;; Enthium v10 with Miryoku home row mods
+(deflayer enthium10
+  caps  1    2    3    4    5    6    7    8    9    0   lalt ralt bspc
+  tab  z    y    o    u    /    q    l    d    p    x    [    ]    \
+  '    @en-a @en-s @en-d @en-f ,   k    @en-j @en-k @en-l @en-; v  ret
+  @os-lsft w    -    =    .    ;    j    m    g    b    f    @os-rsft
+  \    lmet @en-lalt       @spc           @en-ralt prtsc prtsc grv
+  up   down left rght
+)
+
+;; Enthium v10 for Moonlight — ralt on pinkies (AltGr = Super), lalt on rings
+(deflayer enthium-moonlight
+  grv  1    2    3    4    5    6    7    8    9    0    [    ]    bspc
+  tab  z    y    o    u    /    q    l    d    p    x    lalt ralt \
+  '    @ml-a @ml-s @en-d @en-f ,   k    @en-j @en-k @ml-l @ml-; v  ret
+  lsft w    -    =    .    ;    j    m    g    b    f    rsft
+  lctl lmet @en-lalt       @spc-ml        @en-ralt rmet rmet rctl
+  up   down left rght
+)
+
+;; ─── Overlay Layers ────────────────────────────────────────────
+
+;; Symbol layer — left hand symbols, right hand editing
+(deflayer symbol
+  _    grv  S-9  S-0  ;    ,    _    _    _    _    _    _    _    _
+  S-2  [    S-[  S-]  ]    S-/  _    _    _    _    _    _    _    _
+  grv  S-6  =    S--  S-4  S-8  _    bspc tab  spc  ret  _    _
+  S-grv S-, S-\  -    S-.  S-1  _    del  _    _    _    _
+  S-=  S-7  S-5            \              _    _    _    _
+  _    _    _    _
+)
+
+;; Number layer — right hand numbers, left hand editing
+(deflayer number
+  _    _    _    _    _    _    _    _    _    _    _    _    _    _
+  _    _    _    _    _    _    _    7    8    9    _    _    _    _
+  _    ret  spc  tab  bspc _    _    4    5    6    _    _    _
+  _    _    _    _    _    _    _    1    2    3    _    _
+  _    _    _              0              S-5  _    _    _
+  _    _    _    _
+)
+
+;; Workspaces layer — workspace switching, navigation, layout switching
+(deflayer workspaces
+  _    _    M-7  M-8  M-9  _    _    _    _    _    _    _    _    _
+  _    _    M-4  M-5  M-6  _    _    _    _    _    _    _    _    _
+  _    _    M-1  M-2  M-3  _    _    left down up   rght _    _
+  _    _    _    _    _    _    _    home pgdn pgup end  _
+  _    _    _              _              _    _    prnt _
+  @to-moonlight @to-enthium @to-qwerty @to-miryoku
+)
+
+;; Workspaces layer for Moonlight — AltGr replaces Super for workspace switching
+(deflayer workspaces-moonlight
+  _    _    AG-7 AG-8 AG-9 _    _    _    _    _    _    _    _    _
+  _    _    AG-4 AG-5 AG-6 _    _    _    _    _    _    _    _    _
+  _    _    AG-1 AG-2 AG-3 _    _    left down up   rght _    _
+  _    _    _    _    _    _    _    home pgdn pgup end  _
+  _    _    _              _              _    _    prnt _
+  @to-moonlight @to-enthium @to-qwerty @to-miryoku
+)
