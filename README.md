@@ -118,14 +118,20 @@ Beyond the bar and the autostart execs, the pieces worth naming:
 ./install.sh
 ```
 
-Required: `i3` and `i3-settings-qubes`, and nothing else. Between them (plus
-dom0's own default packages) they supply `dmenu`, `j4-dmenu-desktop`, `dunst`,
-`i3lock`, `xss-lock`, `pactl`, `jq`, `qvm-run`, `qubes-app-menu`, and the
-`qubes-i3status` / `qubes-i3-sensible-terminal` / `qubes-i3-xdg-autostart`
-helpers. The active config — `i3/config` and everything its
-`include conf.d/*.conf` picks up — is held to that baseline deliberately: no
-bind may need a package you'd otherwise have no reason to install in dom0.
-`bin/x11-monitor` additionally uses `xrandr`, which dom0 already ships.
+Required: `i3`, `i3-settings-qubes`, and `feh`.
+
+```sh
+sudo qubes-dom0-update i3 i3-settings-qubes feh
+```
+
+Between the first two (plus dom0's own default packages) they supply `dmenu`,
+`j4-dmenu-desktop`, `dunst`, `i3lock`, `xss-lock`, `pactl`, `jq`, `qvm-run`,
+`qubes-app-menu`, and the `qubes-i3status` / `qubes-i3-sensible-terminal` /
+`qubes-i3-xdg-autostart` helpers. `feh` sets the desktop wallpaper
+(`wallpapers/cube-bg.png` via `conf.d/05-monitors.conf`). Beyond that, the
+active config is held to this baseline deliberately: no bind may need a package
+you'd otherwise have no reason to install in dom0. `bin/x11-monitor` uses
+`xrandr`, which dom0 already ships.
 
 ### Monitors and refresh rate
 
