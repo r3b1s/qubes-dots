@@ -15,8 +15,8 @@
     frame_color = "#bd93f9"
     separator_color = frame
 
-    # Action/context menus go through vanilla dmenu.
-    dmenu = dmenu -i -p dunst:
+    # Action/context menus go through the shared x11-dmenu wrapper.
+    dmenu = x11-dmenu -p dunst:
     browser = xdg-open
 
     mouse_left_click = do_action, close_current

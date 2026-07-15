@@ -22,4 +22,4 @@ awk '
         next
     }
     { desc = "" }
-' "$cfg/config" "$cfg"/conf.d/*.conf | dmenu -i -l 30 -p 'binds:' >/dev/null || true
+' "$cfg/config" "$cfg"/conf.d/*.conf | x11-dmenu -l 30 -p 'binds:' >/dev/null || true

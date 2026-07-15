@@ -2,7 +2,7 @@
 # System menu via dmenu: lock / suspend / logout / reboot / poweroff.
 set -eu
 
-choice=$(printf 'lock\nsuspend\nlogout\nreboot\npoweroff\n' | dmenu -i -p 'system:') || exit 0
+choice=$(printf 'lock\nsuspend\nlogout\nreboot\npoweroff\n' | x11-dmenu -p 'system:') || exit 0
 
 case "$choice" in
     # Same command as $lock in i3/conf.d/00-qubes-base.conf; keep them in sync.

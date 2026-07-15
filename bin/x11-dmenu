@@ -1,0 +1,17 @@
+#!/bin/sh
+# Shared dmenu look for every caller (j4, dmenu_run, power menu, keybinds, dunst).
+# Stock dmenu: full-width top bar. -l N = vertical list.
+#
+#   x11-dmenu [dmenu-args...]   # drop-in dmenu
+#   x11-dmenu --run             # dmenu_run equivalent
+set -eu
+
+if [ "${1:-}" = --run ]; then
+	dmenu_path | "$0" | ${SHELL:-/bin/sh} &
+	exit 0
+fi
+
+exec dmenu -l 25 -i \
+	-nb '#282A36' -nf '#F8F8F2' \
+	-sb '#6272A4' -sf '#F8F8F2' \
+	"$@"
