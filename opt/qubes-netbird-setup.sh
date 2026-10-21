@@ -54,7 +54,7 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
 fi
 
 # Dom0 tool check.
-for _cmd in qvm-clone qvm-create qvm-run qvm-prefs qvm-features qvm-shutdown qvm-start qvm-ls bash; do
+for _cmd in qvm-clone qvm-create qvm-run qvm-prefs qubes-prefs qvm-features qvm-shutdown qvm-start qvm-ls bash; do
   if ! command -v "$_cmd" >/dev/null 2>&1; then
     echo "ERROR: required tool not found in dom0: $_cmd" >&2
     exit 1
@@ -98,14 +98,14 @@ fi
 # the root volume. They must be installed in a TemplateVM to survive its
 # shutdown and reach tpl-derived qubes.
 
-# Templates have no netvm by default and resolve DNS through their netvm; a
-# template with netvm=none cannot reach pkgs.netbird.io (curl would fail with
-# "could not resolve host"). Fail loudly instead of letting the install limp
-# along — otherwise the qube is left without netbird yet marked provisioned.
+# Templates ship with netvm=None, so a fresh clone cannot reach package
+# repos. Attach the same netvm the source template's default netvm chain
+# (or the system default netvm) uses, instead of erroring.
 _tpl_netvm=$(qvm-prefs "$NETBIRD_TEMPLATE" netvm)
 if [ -z "$_tpl_netvm" ]; then
-  echo "ERROR: '$NETBIRD_TEMPLATE' has no netvm; templates need one (e.g. sys-firewall) to fetch packages." >&2
-  exit 1
+  _tpl_netvm=$(qubes-prefs default_netvm)
+  echo "=> [2/9] Attaching '$NETBIRD_TEMPLATE' to default netvm: $_tpl_netvm"
+  qvm-prefs "$NETBIRD_TEMPLATE" netvm "$_tpl_netvm"
 fi
 echo "=> [2/9] '$NETBIRD_TEMPLATE' netvm: $_tpl_netvm"
 unset _tpl_netvm
