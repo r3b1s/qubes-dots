@@ -125,7 +125,7 @@ Between the first two (plus dom0's own default packages) they supply `dmenu`,
 `j4-dmenu-desktop`, `dunst`, `i3lock`, `xss-lock`, `pactl`, `jq`, `qvm-run`,
 `qubes-app-menu`, and the `qubes-i3status` / `qubes-i3-sensible-terminal` /
 `qubes-i3-xdg-autostart` helpers. `feh` sets the desktop wallpaper
-(`wallpapers/cube-bg.png` via `conf.d/05-monitors.conf`). Beyond that, the
+(`wallpapers/moon.jpg` via `conf.d/05-monitors.conf`). Beyond that, the
 active config is held to this baseline deliberately: no bind may need a package
 you'd otherwise have no reason to install in dom0. `bin/x11-monitor` uses
 `xrandr`, which dom0 already ships.
