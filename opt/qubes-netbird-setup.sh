@@ -21,6 +21,10 @@
 # If empty, the script prints instructions for running `netbird up` yourself.
 # NOTE: never hard-code the setup key into this file.
 #
+# Steps: template clone (1) → template provisioning (2-8) → DispVM creation +
+# flags (9) → start + netbird up (10) → verify (11-13). sys-netbird is created
+# only after the template is fully configured.
+#
 set -euo pipefail
 umask 077
 shopt -s inherit_errexit 2>/dev/null || true
@@ -72,10 +76,10 @@ if qube_exists "$DISPVM_TEMPL_NAME"; then
     echo "Remove it first (qvm-remove --force-root $DISPVM_TEMPL_NAME) or set TEMPLATE_VM=$_base and rerun." >&2
     exit 1
   fi
-  echo "=> [1/14] DispVM template '$DISPVM_TEMPL_NAME' already exists (based on '$_base'), reusing."
+  echo "=> [1/13] DispVM template '$DISPVM_TEMPL_NAME' already exists (based on '$_base'), reusing."
   unset _base
 else
-  echo "=> [1/14] Cloning template '$TEMPLATE_VM' -> '$DISPVM_TEMPL_NAME' as AppVM ..."
+  echo "=> [1/13] Cloning template '$TEMPLATE_VM' -> '$DISPVM_TEMPL_NAME' as AppVM ..."
   # qvm-clone has no --template/--property argument. Converting a TemplateVM
   # source with --class AppVM leaves the new AppVM's template property at the
   # *system default template* (e.g. fedora-44-xfce), which is why apt-get
@@ -89,23 +93,8 @@ else
   qvm-prefs "$DISPVM_TEMPL_NAME" template_for_dispvms true
 fi
 
-# ---- Step 2: disposable NetBird qube ---------------------------------------
-if qube_exists "$NETBIRD_VM_NAME"; then
-  echo "=> [2/14] Qube '$NETBIRD_VM_NAME' already exists, reusing."
-else
-  echo "=> [2/14] Creating disposable qube '$NETBIRD_VM_NAME' ..."
-  qvm-create --disp --template "$DISPVM_TEMPL_NAME" "$NETBIRD_VM_NAME"
-fi
-
-# ---- Step 3: enable qubes-netbird-dns service flag -------------------------
-# The Qubes service flag is `netbird-dns 1` via qvm-features; this makes the
-# file /var/run/qubes-service/qubes-netbird-dns appear in the qube, which the
-# unit's ConditionPathExists checks.
-echo "=> [3/14] Enabling service flag netbird-dns on '$NETBIRD_VM_NAME' ..."
-qvm-features "$NETBIRD_VM_NAME" netbird-dns 1
-
-# ---- Step 4: install NetBird in the DispVM template ------------------------
-echo "=> [4/14] Installing netbird packages in '$DISPVM_TEMPL_NAME' ..."
+# ---- Step 2: install NetBird in the DispVM template ------------------------
+echo "=> [2/13] Installing netbird packages in '$DISPVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -119,8 +108,8 @@ apt-get install -y netbird jq
 systemctl enable netbird.service
 EOF
 
-# ---- Step 5: qubes-netbird-dns systemd unit --------------------------------
-echo "=> [5/14] Writing /etc/systemd/system/qubes-netbird-dns.service in '$DISPVM_TEMPL_NAME' ..."
+# ---- Step 3: qubes-netbird-dns systemd unit --------------------------------
+echo "=> [3/13] Writing /etc/systemd/system/qubes-netbird-dns.service in '$DISPVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 cat > /etc/systemd/system/qubes-netbird-dns.service <<'UNIT'
@@ -143,10 +132,10 @@ UNIT
 chmod 0644 /etc/systemd/system/qubes-netbird-dns.service
 EOF
 
-# ---- Step 6: qubes-netbird-dns.sh helper (guide's script, bug fixed) -------
+# ---- Step 4: qubes-netbird-dns.sh helper (guide's script, bug fixed) -------
 # The guide's script contains `if [ -z "netbird_dns" ]`, which is always true
 # string; corrected to `-z "$netbird_dns"`.
-echo "=> [6/14] Writing /usr/bin/qubes-netbird-dns.sh in '$DISPVM_TEMPL_NAME' ..."
+echo "=> [4/13] Writing /usr/bin/qubes-netbird-dns.sh in '$DISPVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 cat > /usr/bin/qubes-netbird-dns.sh <<'HELPER'
@@ -178,15 +167,15 @@ HELPER
 chmod 0755 /usr/bin/qubes-netbird-dns.sh
 EOF
 
-# ---- Step 7: enable the unit in the template -------------------------------
-echo "=> [7/14] Enabling qubes-netbird-dns.service in '$DISPVM_TEMPL_NAME' ..."
+# ---- Step 5: enable the unit in the template -------------------------------
+echo "=> [5/13] Enabling qubes-netbird-dns.service in '$DISPVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 systemctl enable qubes-netbird-dns.service
 EOF
 
-# ---- Step 8: bind-dirs so NetBird state persists in dispvms ----------------
-echo "=> [8/14] Configuring qubes bind-dirs for /var/{lib,log,cache}/netbird in '$DISPVM_TEMPL_NAME' ..."
+# ---- Step 6: bind-dirs so NetBird state persists in dispvms ----------------
+echo "=> [6/13] Configuring qubes bind-dirs for /var/{lib,log,cache}/netbird in '$DISPVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 mkdir -p /rw/bind-dirs/var/lib/netbird /rw/bind-dirs/var/log/netbird /rw/bind-dirs/var/cache/netbird
@@ -197,8 +186,8 @@ CONF
 chmod 0644 /rw/config/qubes-bind-dirs.d/50_netbird.conf
 EOF
 
-# ---- Step 9: nftables leak-block rules (optional per guide, included) ------
-echo "=> [9/14] Writing qubes-firewall-user-script (nftables leak block) in '$DISPVM_TEMPL_NAME' ..."
+# ---- Step 7: nftables leak-block rules (optional per guide, included) ------
+echo "=> [7/13] Writing qubes-firewall-user-script (nftables leak block) in '$DISPVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 mkdir -p /rw/config
@@ -210,23 +199,34 @@ NFT
 chmod 0755 /rw/config/qubes-firewall-user-script
 EOF
 
-# ---- Step 10: shut down the DispVM template --------------------------------
-echo "=> [10/14] Shutting down '$DISPVM_TEMPL_NAME' ..."
+# ---- Step 8: shut down the DispVM template ----------------------------------
+echo "=> [8/13] Shutting down '$DISPVM_TEMPL_NAME' ..."
 qvm-shutdown -- "$DISPVM_TEMPL_NAME"
 
-# ---- Step 11: Provides network ---------------------------------------------
-echo "=> [11/14] Enabling 'Provides network' on '$NETBIRD_VM_NAME' ..."
+# ---- Step 9: create and configure the disposable NetBird qube ----------------
+# Created only after the template is fully configured, so it inherits a
+# finished state.
+if qube_exists "$NETBIRD_VM_NAME"; then
+  echo "=> [9/13] Qube '$NETBIRD_VM_NAME' already exists, reusing."
+else
+  echo "=> [9/13] Creating disposable qube '$NETBIRD_VM_NAME' from '$DISPVM_TEMPL_NAME' ..."
+  qvm-create --disp --template "$DISPVM_TEMPL_NAME" "$NETBIRD_VM_NAME"
+fi
+
+# Service flag for qubes-netbird-dns (makes /var/run/qubes-service/
+# qubes-netbird-dns appear, which the unit's ConditionPathExists checks).
+qvm-features "$NETBIRD_VM_NAME" netbird-dns 1
+
+# Provides network
+echo "=> [9/13] Enabling 'Provides network' on '$NETBIRD_VM_NAME' ..."
 qvm-prefs "$NETBIRD_VM_NAME" provides_network true
 
-# ---- Step 12: netbird.service enable (done in step 4; kept as a distinct
-#      logical step for traceability with the guide) -------------------------
-
-# ---- Step 13: run netbird up (setup key) ------------------------------------
-echo "=> [13/14] Starting '$NETBIRD_VM_NAME' ..."
+# ---- Step 10: run netbird up (setup key) ------------------------------------
+echo "=> [10/13] Starting '$NETBIRD_VM_NAME' ..."
 qvm-start --skip-if-running "$NETBIRD_VM_NAME"
 
 if [ -n "$NETBIRD_SETUP_KEY" ]; then
-  echo "=> [13/14] Enrolling '$NETBIRD_VM_NAME' into NetBird (key not shown) ..."
+  echo "=> [10/13] Enrolling '$NETBIRD_VM_NAME' into NetBird (key not shown) ..."
   # Disable xtrace so the key never appears in any log; pass via stdin env.
   qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<EOF
 set +x
@@ -235,14 +235,12 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 netbird up -s "${NETBIRD_SETUP_KEY}"
 EOF
 else
-  echo "=> [13/14] No setup key supplied. Run this yourself inside the qube:"
+  echo "=> [10/13] No setup key supplied. Run this yourself inside the qube:"
   echo "       qvm-run \"$NETBIRD_VM_NAME\" term"
   echo "       then:  sudo netbird up -s <SETUP_KEY>   (or without -s to use a browser login)"
 fi
 
-echo "=> [12/14] (netbird.service already enabled in template during install)"
-
-# ---- Step 14: summary -------------------------------------------------------
+# ---- Steps 11-13: summary ----------------------------------------------------
 echo
 echo "===== Summary ====="
 echo "  DispVM template : $DISPVM_TEMPL_NAME (AppVM clone of $TEMPLATE_VM, template_for_dispvms=true)"
