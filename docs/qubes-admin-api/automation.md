@@ -90,36 +90,81 @@ run it, or disable caching explicitly.
 |---|---|---|
 | **dom0** | total (local socket; policy not consulted for local calls) | bootstrap, trust anchor, things that must never fail |
 | **a dedicated ops AppVM** | exactly what `30-*.policy` grants it | day-to-day automation, remote management entry point — see [remote-access-example.md](remote-access-example.md) |
-| **a management disposable** | same policy as its calling qube, but stateless | one-off management code you don't want persisting anywhere |
+| **a management disposable** | **no `admin.*` access at all** — only a temporary shell/filecopy grant to the one qube it is configuring | configuring the *inside* of a qube without dom0 parsing that qube's output |
 
 The management-disposable mechanism exists because of QSB #45: the
 `management_dispvm` property (per-qube, or global via `qubes-prefs`)
 names the disposable template from which throwaway VMs run management
-code (Salt management uses `default-mgmt-dvm`, which is hidden from menus
-and has networking disabled). Treat it as the pattern for your own
-automation: **management logic runs in a disposable, holds no secrets of
-its own, disappears when done**.
+code (`default-mgmt-dvm`: hidden from menus, no network, black label).
+It is **not** an Admin API client. For each target, the tool creates a
+disposable and grants it, for the duration of the run only:
+
+- Salt: dom0 writes `/etc/qubes/policy.d/30-qubesctl-salt.policy` with
+  `qubes.Filecopy` / `qubes.VMShell` / `qubes.VMRootShell` from
+  `disp-mgmt-<vm>` to `<vm>`, then deletes it
+  (`qubes-mgmt-salt` `qubessalt/__init__.py`).
+- qubes-ansible: dom0's `ansible.CreateManagementPolicies` writes the
+  equivalent into `/run/qubes/policy.d/30-qubes-ansible.policy`, plus
+  `admin.vm.CurrentState`/`List` on that one target.
+
+The upstream docs put it bluntly: `default-mgmt-dvm` "has full control
+over the qubes it's used to manage" (`user/advanced-topics/salt.rst:226`).
+Whoever can change the global `management_dispvm` property therefore
+controls every future managed qube. The useful pattern for your own
+automation is the same: **code that touches a qube's insides runs in a
+disposable, holds no secrets of its own, and disappears when done**.
+4.3 can preload them: `qvm-features default-mgmt-dvm preload-dispvm-max 2`.
 
 ### Salt — bulk orchestration
 
-`qubesctl` (dom0) applies Salt states to many qubes at once and is the
-in-box answer to "configure 40 AppVMs consistently". It underlies
-management rather than replacing the API: Salt management itself runs
-through management disposables. For state management and bulk config,
-prefer `qubesctl`; for process-like automation (react, poll, start/stop),
-prefer `qubesadmin`. Since 4.2 the *update* flow is no longer Salt-based —
-`qubes-dom0-update` / `qubes-vm-update` are the recommended CLI updates
-(Salt still works).
+`qubesctl` (dom0 only) applies Salt states to many qubes at once and is
+the in-box answer to "configure 40 AppVMs consistently". It is two
+programs in one:
+
+- **dom0 half** — `salt-call --local` as root in dom0. The `qvm.*` states
+  use `qubesadmin`, which in dom0 is `QubesLocal`: it writes straight to
+  `qubesd.sock`, so **no qrexec policy is evaluated**. This half also
+  edits dom0 files and packages directly, which no API call can do.
+- **per-qube half** — `salt-ssh` from a management disposable (above),
+  over qrexec.
+
+So Salt is not an Admin API client in the policy-bounded sense; it is a
+dom0 program that uses the same client library locally. For state
+management and bulk config, prefer `qubesctl`; for process-like
+automation (react, poll, start/stop), prefer `qubesadmin`. Since 4.2 the
+*update* flow is no longer Salt-based — `qubes-dom0-update` /
+`qubes-vm-update` are the recommended CLI updates (Salt still works).
+Comparison with qubes-ansible, which *can* run as a policy-bounded
+client from a qube:
+[../qubes-config-management/](../qubes-config-management/README.md).
 
 ## Tags designed for delegation
 
-Two documented tags exist to make least-privilege policies writable
-(created in default installs, unused by default):
+Tags are how least-privilege policies get written. Verified against
+`qubes-core-admin` release4.3:
 
-- `created-by-<QUBE>` — set automatically by a `qubesd` extension at qube
-  creation; the value is enforced (not API-writable) and updated on clone.
-- `managed-by-<QUBE>` — not automatic; you set it (`admin.vm.tag.Set`) to
-  mark which qubes a given manager may touch.
+- `created-by-<QUBE>` — added by the `admin.vm.Create.*` handler itself
+  (`qubes/api/admin.py`, marked "TODO: move this to extension"; the
+  upstream doc says an extension does it). Only dom0 may set or remove a
+  `created-by-*` tag (`qubes/ext/admin.py`).
+- `disp-created-by-<QUBE>` — additionally added to disposables made with
+  `admin.vm.CreateDisposable`.
+- `managed-by-<QUBE>` — **a naming convention only**; nothing in
+  `qubesd` knows about it. You set it (`admin.vm.tag.Set`) to mark which
+  qubes a manager may touch — and so can *anything else* holding
+  `tag.Set` on that qube. Never grant a manager `tag.Set` on qubes it
+  doesn't already own, or it can hand itself new ones.
+
+Two features on the *creating* qube shape what it creates:
+
+- `tag-created-vm-with` — space-separated tags added to every qube it
+  creates.
+- `set-created-guivm` — sets the new qube's `guivm`.
+
+Both are ordinary features, so a manager with `admin.vm.feature.Set` *on
+itself* can set them — and through `tag-created-vm-with` reach every
+`@tag:` rule in the policy. Don't grant a manager write access to
+itself.
 
 This is the idiom for scoping a manager:
 
@@ -162,14 +207,21 @@ key, exfiltrate by your own means).
    `<call> * <src-qube> <dest-selector> allow target=dom0`. Implicit deny
    covers everything you didn't list.
 2. Start with read-only calls (`admin.vm.List`, `admin.vm.CurrentState`,
-   `admin.property.Get`); add write verbs one at a time.
+   `admin.property.Get`); add write verbs one at a time. Global calls
+   and the full-list form of `admin.vm.List`/`admin.Events` have dom0 as
+   destination, which `@anyvm` does not match — give them a `dom0` line
+   ([README.md](README.md#the-targetdom0-rule)).
 3. Scope write verbs with `@tag:managed-by-<mgr>`; never `@anyvm` as
    destination for `Set`/`Start`/`Remove`.
 4. For dangerous verbs (`admin.vm.Remove`, `policy.Replace`), consider
    `ask` instead of `allow` — the confirmation dialog appears in dom0, so
    a human at the host gates remote actions.
 5. Keep the `ops` qube minimal (no browsers, no user files): it is now
-   part of your TCB, bounded by its policy lines.
+   part of your TCB, bounded by its policy lines. Things that silently
+   make it dom0-equivalent: `policy.*` write; global
+   `admin.property.Set` (`management_dispvm`, `updatevm`,
+   `default_template`); `qubes.VMShell` or `admin.vm.volume.Import` into
+   templates; `admin.vm.Console`; write access to itself (see tags above).
 6. `policy.*` edits: use the `Get`→`Replace` token flow; keep policies in
    git *outside* the host as your rollback.
 7. Remember the protocol is not interactive and closing a connection does

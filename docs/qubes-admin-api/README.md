@@ -6,12 +6,21 @@ Qubes OS — and for using it to automate a Qubes host. Companion to
 CLI tools are frontends over these calls; the API is what a *program*
 (possibly running outside dom0) talks to.
 
-Sources of truth (qubes-doc @ bb9da3f5, current as of 2026-10):
+Sources of truth (qubes-doc @ 37ae9d10, Qubes OS 4.3.2, current as of
+2026-10-21):
 
-- `developer/services/admin-api.rst` — canonical call table + protocol
+- `developer/services/admin-api.rst` — canonical call table + protocol.
+  It lags the code in places; where they disagree,
+  [admin-api-calls.md](admin-api-calls.md) follows
+  `qubes-core-admin` release4.3 (v4.3.53), `qubes/api/admin.py` +
+  `Makefile`
 - `developer/services/qrexec.rst` — policy engine underneath
 - `qubes-core-admin-client` repo — the official Python client
   (`qubesadmin`) and the CLI manpages
+
+For declarative tooling built on top of this (Salt, qubes-ansible,
+admin-qube patterns), see
+[../qubes-config-management/](../qubes-config-management/README.md).
 
 ## What it is
 
@@ -111,10 +120,29 @@ routing — even for read-only calls — and the call then fails anyway,
 because only dom0's `qubesd` serves `admin.*`. This is the documented
 failure mode; the fix is always the same: `target=dom0`.
 
+The second gotcha is the destination column itself: **`@anyvm` never
+matches dom0** (`qubes-core-qrexec` `qrexec/policy/parser.py`, `AnyVM.match`
+returns `not is_dom0(...)`). Calls whose destination *is* dom0 — global
+calls like `admin.property.Get`, `admin.vm.Create.*`, and the
+"list everything" form of `admin.vm.List` / `admin.Events` — need their
+own `dom0` (or `@adminvm`) rule:
+
+```
+admin.property.Get * source-qube dom0   allow target=dom0
+admin.vm.List      * source-qube dom0   allow target=dom0   # full list...
+admin.vm.List      * source-qube @anyvm allow target=dom0   # ...filtered per qube
+```
+
+For `admin.vm.List` and `admin.Events` against dom0, `qubesd` then
+re-evaluates the same call per qube and drops the ones this source may not
+see (`qubes/ext/admin.py`, `admin_vm_list`), so both lines are needed.
+
 ## Glossary notes used here
 
-- **interface qube** — a dom0-like management qube; multi-user setups
-  would have more than one. In the default install dom0 is the only admin
-  qube, so every policy line below points at dom0.
+- **interface qube** — a dom0-like management qube (the newer term for
+  "GUI domain"); multi-user setups would have more than one. In the
+  default install dom0 is the only admin qube, so every policy line below
+  points at dom0. `AdminVM` is the *class* reserved for dom0; any other
+  qube granted `admin.*` calls is informally an "admin qube".
 - **admin qube** — see [../qubes-cli-tools/README.md](../qubes-cli-tools/README.md)
   glossary.

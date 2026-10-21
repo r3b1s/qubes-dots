@@ -45,10 +45,10 @@ dom0 exposes nothing; the tailnet ACL exposes only `mgmt-ops`.
 ## Step 1 — create the qubes
 
 ```console
-[user @dom0 ~]$ qvm-create --template fedora-41-minimal --label gray sys-tailscale
+[user @dom0 ~]$ qvm-create --template fedora-44-minimal --label gray sys-tailscale
 [user @dom0 ~]$ qvm-prefs sys-tailscale netvm sys-net
 [user @dom0 ~]$ qvm-prefs sys-tailscale provides_network True
-[user @dom0 ~]$ qvm-create --template fedora-41-minimal --label black mgmt-ops
+[user @dom0 ~]$ qvm-create --template fedora-44-minimal --label black mgmt-ops
 [user @dom0 ~]$ qvm-prefs mgmt-ops netvm sys-tailscale
 ```
 
@@ -56,8 +56,8 @@ Install the client in the service qube (from its template, then rebuild
 the template — never install into the qube itself):
 
 ```console
-[user @fedora-41-minimal ~]$ sudo dnf install tailscale   # or netbird
-[user @dom0 ~]$ qvm-shutdown --wait fedora-41-minimal && qvm-start sys-tailscale
+[user @fedora-44-minimal ~]$ sudo dnf install tailscale   # or netbird
+[user @dom0 ~]$ qvm-shutdown --wait fedora-44-minimal && qvm-start sys-tailscale
 ```
 
 Join the network inside `sys-tailscale` (`tailscale up --advertise-tags=tag:qubes-mgmt`
@@ -95,14 +95,19 @@ general shell into the system.
 Create `/etc/qubes/policy.d/30-mgmt-ops.policy` in dom0:
 
 ```text
-# -- read-only: broad, but still scoped to the ops qube ----------------
+# -- read-only, global: destination is dom0 itself ---------------------
+#    (@anyvm never matches dom0, so these need their own lines)
+admin.vm.List          * mgmt-ops dom0          allow target=dom0
+admin.Events           * mgmt-ops dom0          allow target=dom0
+admin.property.Get     * mgmt-ops dom0          allow target=dom0
+
+# -- read-only, per qube: also the filter for the two list calls above --
 admin.vm.List          * mgmt-ops @anyvm        allow target=dom0
+admin.Events           * mgmt-ops @anyvm        allow target=dom0
 admin.vm.CurrentState  * mgmt-ops @anyvm        allow target=dom0
-admin.property.Get     * mgmt-ops @anyvm        allow target=dom0
 admin.vm.property.Get  * mgmt-ops @anyvm        allow target=dom0
 admin.vm.feature.Get   * mgmt-ops @anyvm        allow target=dom0
 admin.vm.tag.List      * mgmt-ops @anyvm        allow target=dom0
-admin.Events           * mgmt-ops @anyvm        allow target=dom0
 
 # -- write verbs: only on qubes explicitly handed over -----------------
 admin.vm.Start         * mgmt-ops @tag:managed-by-mgmt-ops allow target=dom0
@@ -113,11 +118,24 @@ admin.vm.property.Set  * mgmt-ops @tag:managed-by-mgmt-ops allow target=dom0
 admin.vm.Remove        * mgmt-ops @tag:managed-by-mgmt-ops ask target=dom0
 policy.Replace         * mgmt-ops dom0          ask target=dom0
 
-# -- explicitdeny reminder: everything else is denied implicitly,
-#    but say it anyway so an auditor reads intent:
-admin.vm.Create.AppVM  * mgmt-ops @anyvm        deny
+# -- explicit-deny reminder: everything else is denied implicitly,
+#    but say it anyway so an auditor reads intent. Match the real
+#    destination: Create's is dom0, Kill's is the qube.
+admin.vm.Create.AppVM  * mgmt-ops dom0          deny
 admin.vm.Kill          * mgmt-ops @anyvm        deny
 ```
+
+`admin.vm.List`/`admin.Events` need both a `dom0` line and an `@anyvm`
+line: the client asks dom0 for the full list, and `qubesd` then
+re-evaluates the same call against each qube and silently drops the ones
+`mgmt-ops` may not see ([README.md](README.md#the-targetdom0-rule)).
+Without the `dom0` line, `app.domains` in Step 4 raises
+`PermissionDenied`.
+
+`admin.property.Get` exposes global properties only (`default_netvm`,
+`updatevm`, `management_dispvm`, …) — read access is harmless, but never
+grant `admin.property.Set` to an ops qube: repointing `updatevm` or
+`management_dispvm` hands it every qube those touch.
 
 Note the three mechanisms stacked:
 
@@ -132,6 +150,11 @@ Note the three mechanisms stacked:
    ```console
    [user @dom0 ~]$ qvm-tags work add managed-by-mgmt-ops
    ```
+
+   `managed-by-*` is a naming convention, not something `qubesd`
+   enforces: anything holding `admin.vm.tag.Set` on a qube can add it.
+   This policy grants `mgmt-ops` no `tag.Set` at all, which is what keeps
+   the scope honest.
 
 3. **`ask` for the verbs you'd want a human to see** — the confirmation
    dialog appears at the host, so someone physically present gates
@@ -202,9 +225,10 @@ asyncio.run(main())
   check both, since the API surface is deliberately narrow enough that
   the log is readable.
 - **Rollback**: treat `30-mgmt-ops.policy` as code — keep it in the same
-  git repo as the automation it enables, and remember `policy.Replace`
-  (the API's own editor) validates before saving, so a bad push cannot
-  brick the policy engine.
+  git repo as the automation it enables. `policy.Replace` (the API's own
+  editor) validates syntax and includes before saving, so a malformed
+  push is rejected — but a *valid* policy can still lock the ops qube
+  (or you) out, so keep a dom0-side way back.
 
 ## Variations
 
@@ -216,6 +240,8 @@ asyncio.run(main())
   unchanged. Only worth it for programmatic callers; SSH is the boring
   default.
 - **Paranoia upgrade**: run the ops session in a disposable based on a
-  dedicated `mgmt-dvm` template (`management_dispvm` pattern,
-  [automation.md](automation.md#where-automation-can-run)) so the ingress
-  qube leaves nothing persistent.
+  dedicated disposable template so the ingress qube leaves nothing
+  persistent. Note that a disposable is a new qube with its own name:
+  policy lines for `mgmt-ops` don't cover it, so scope them with
+  `@dispvm:<template>` or a tag instead (see
+  [automation.md](automation.md#where-automation-can-run)).
