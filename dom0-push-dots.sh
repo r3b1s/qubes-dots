@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # Run in dom0. Reverse of dom0-clone-dots.sh: tar-copies one or more
-# directories out of this dom0 user's ~/Dots into /home/user/Dots on a
+# directories out of this dom0 user's ~/Dotfiles into /home/user/Dotfiles on a
 # target AppVM, then optionally runs `git push` in each of them there.
 #
 # Usage:
 #   ./dom0-push-dots.sh <folder1,folder2,...> <target-vm> [--git-push]
 #
 # Arguments:
-#   $1  comma-separated folder names, relative to ~/Dots
+#   $1  comma-separated folder names, relative to ~/Dotfiles
 #   $2  target qube (AppVM) name
 #   --git-push  after copying, cd into each copied folder on the target
 #               VM and run a bare `git push`
 #
 # One-liner (paste into a dom0 terminal, edit FOLDERS/VM first):
-#   FOLDERS="repo1,repo2"; VM=personal; qvm-run --pass-io "$VM" "mkdir -p /home/user/Dots" && IFS=',' read -ra F <<< "$FOLDERS" && for f in "${F[@]}"; do tar -cf - -C "$HOME/Dots" "$f" | qvm-run --pass-io "$VM" "tar -xf - -C /home/user/Dots"; done
+#   FOLDERS="repo1,repo2"; VM=personal; qvm-run --pass-io "$VM" "mkdir -p /home/user/Dotfiles" && IFS=',' read -ra F <<< "$FOLDERS" && for f in "${F[@]}"; do tar -cf - -C "\$HOME/Dotfiles" "$f" | qvm-run --pass-io "$VM" "tar -xf - -C /home/user/Dotfiles"; done
 
 set -euo pipefail
 
@@ -22,11 +22,11 @@ print_help() {
 Usage: ./dom0-push-dots.sh <folder1,folder2,...> <target-vm> [--git-push]
 
 Run in dom0. Reverse of dom0-clone-dots.sh: tar-copies one or more
-directories out of this dom0 user's ~/Dots into /home/user/Dots on a
+directories out of this dom0 user's ~/Dotfiles into /home/user/Dotfiles on a
 target AppVM, then optionally runs `git push` in each of them there.
 
 Arguments:
-  folder1,folder2,...  comma-separated folder names, relative to ~/Dots
+  folder1,folder2,...  comma-separated folder names, relative to ~/Dotfiles
   target-vm             target qube (AppVM) name
 
 Options:
@@ -67,8 +67,8 @@ for arg in "$@"; do
     esac
 done
 
-DOTS_DIR="$HOME/Dots"
-REMOTE_DOTS_DIR=/home/user/Dots
+DOTS_DIR="$HOME/Dotfiles"
+REMOTE_DOTS_DIR=/home/user/Dotfiles
 
 # POSIX-sh-safe single-quote escaping for building remote command strings.
 shquote() {

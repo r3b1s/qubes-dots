@@ -13,12 +13,12 @@ package beyond the dom0 baseline is kept out of the loaded config entirely.
 ## Initial install
 
 Paste this into a dom0 terminal to install git, clone this repo (and any
-others you list) into `/home/user/Dots` on your `personal` AppVM, then pull
-the whole `Dots` directory back into dom0 — see `dom0-clone-dots.sh` for
+others you list) into `/home/user/Dotfiles` on your `personal` AppVM, then pull
+the whole `Dotfiles` directory back into dom0 — see `dom0-clone-dots.sh` for
 the equivalent script form:
 
 ```bash
-VM=personal; DOTS=/home/user/Dots; CLONE_TARS="https://<your-repo-url>"; qvm-run --pass-io "$VM" "sudo dnf install -y git" && qvm-run --pass-io "$VM" "mkdir -p $DOTS" && IFS=',' read -ra U <<< "$CLONE_TARS" && for u in "${U[@]}"; do qvm-run --pass-io "$VM" "git -C $DOTS clone '$u'"; done && qvm-run --pass-io "$VM" "tar -cf - -C $(dirname "$DOTS") $(basename "$DOTS")" | tar -xf - -C "$HOME"
+VM=personal; DOTS=/home/user/Dotfiles; CLONE_TARS="https://<your-repo-url>"; qvm-run --pass-io "$VM" "sudo dnf install -y git" && qvm-run --pass-io "$VM" "mkdir -p $DOTS" && IFS=',' read -ra U <<< "$CLONE_TARS" && for u in "${U[@]}"; do qvm-run --pass-io "$VM" "git -C $DOTS clone '$u'"; done && qvm-run --pass-io "$VM" "tar -cf - -C $(dirname "$DOTS") $(basename "$DOTS")" | tar -xf - -C "$HOME"
 ```
 
 Edit `CLONE_TARS` to your own repo URL(s) first. Then run `./install.sh`
@@ -215,18 +215,18 @@ dom0 terminal as your normal user, no root and no extra setup.
 
 ```sh
 # in dom0
-~/Dots/qubes-dots/dom0-sync-dots.sh qubes-dots <source-vm> --install --reload
+~/Dotfiles/qubes-dots/dom0-sync-dots.sh qubes-dots <source-vm> --install --reload
 ```
 
 It runs `git pull --ff-only` inside the source AppVM, tar-copies the result
-back into `~/Dots`, then optionally re-runs that folder's `install.sh` and
+back into `~/Dotfiles`, then optionally re-runs that folder's `install.sh` and
 reloads i3. git stays in the AppVM; dom0 needs neither git nor a network
 interface. Sync several repos at once by comma-separating them, as with
 `dom0-push-dots.sh`.
 
 Sync is **one-way and wholesale**. Each folder is extracted beside the old one
 and swapped in, so a file deleted upstream disappears in dom0 too, and local
-edits under dom0's `~/Dots/<folder>` are destroyed. Edit in the AppVM and sync
+edits under dom0's `~/Dotfiles/<folder>` are destroyed. Edit in the AppVM and sync
 down; to go the other way, that is `dom0-push-dots.sh`. The swap happens only
 after the new tree lands whole, so an interrupted transfer leaves dom0's copy
 as it was rather than half-replaced.
@@ -254,7 +254,7 @@ Install the dom0 half once, after `dom0-clone-dots.sh` has landed the repo:
 
 ```sh
 # in dom0
-~/Dots/qubes-dots/dom0-install-devshell.sh <your-dev-qube>
+~/Dotfiles/qubes-dots/dom0-install-devshell.sh <your-dev-qube>
 ```
 
 Then the caller half, in the dev qube named above:
@@ -274,7 +274,7 @@ is [`dom0-sync-dots.sh`](#updating-dom0-from-your-repo), the same script you
 would run from a dom0 terminal, called through `dom0sh`:
 
 ```sh
-dom0sh '/home/user/Dots/qubes-dots/dom0-sync-dots.sh qubes-dots dev --install --reload'
+dom0sh '/home/user/Dotfiles/qubes-dots/dom0-sync-dots.sh qubes-dots dev --install --reload'
 ```
 
 Note the absolute path: `dev.Shell` runs as root, so `~` there is `/root`, not

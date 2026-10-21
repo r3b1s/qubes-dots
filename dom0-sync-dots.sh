@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run in dom0. Re-pulls one or more repos that already live in ~/Dots: runs
+# Run in dom0. Re-pulls one or more repos that already live in ~/Dotfiles: runs
 # `git pull` inside the source AppVM, tar-copies the result back into dom0,
 # and optionally re-runs each repo's install.sh and reloads i3.
 #
@@ -12,13 +12,13 @@
 #
 # Each folder is replaced wholesale, not merged: the new tree is extracted
 # beside the old one and swapped in, so a file deleted upstream disappears here
-# too. Local edits inside ~/Dots/<folder> in dom0 are destroyed. Edit in the
+# too. Local edits inside ~/Dotfiles/<folder> in dom0 are destroyed. Edit in the
 # AppVM, sync down; never the reverse (that is dom0-push-dots.sh).
 
 set -euo pipefail
 
 # dom0 rpc services run as root, so reaching this script through dev.Shell would
-# put $HOME at /root: the tree would land in /root/Dots and install.sh would
+# put $HOME at /root: the tree would land in /root/Dotfiles and install.sh would
 # symlink the dots into /root/.config/i3, where the i3 running as the desktop
 # user never looks. It would all appear to succeed. Re-exec as that user so the
 # dom0-terminal and dev.Shell paths do the same thing.
@@ -38,10 +38,10 @@ print_help() {
 Usage: ./dom0-sync-dots.sh <folder1,folder2,...> <source-vm> [options]
 
 Run in dom0. Runs `git pull` in each folder inside <source-vm>, copies the
-result back into dom0's ~/Dots, replacing each folder wholesale.
+result back into dom0's ~/Dotfiles, replacing each folder wholesale.
 
 Arguments:
-  folder1,folder2,...  comma-separated folder names, relative to ~/Dots
+  folder1,folder2,...  comma-separated folder names, relative to ~/Dotfiles
   source-vm            AppVM holding the git checkouts
 
 Options:
@@ -50,7 +50,7 @@ Options:
   --reload     run `i3-msg reload` once, after all folders are synced
   -h, --help   show this help text and exit
 
-Local edits under dom0's ~/Dots/<folder> are destroyed. Sync is one-way.
+Local edits under dom0's ~/Dotfiles/<folder> are destroyed. Sync is one-way.
 EOF
 }
 
@@ -89,8 +89,8 @@ for arg in "$@"; do
     esac
 done
 
-DOTS_DIR="$HOME/Dots"
-REMOTE_DOTS_DIR=/home/user/Dots
+DOTS_DIR="$HOME/Dotfiles"
+REMOTE_DOTS_DIR=/home/user/Dotfiles
 
 # POSIX-sh-safe single-quote escaping for building remote command strings.
 shquote() {
@@ -115,7 +115,7 @@ for folder in "${FOLDERS[@]}"; do
     [[ -z "$folder" ]] && continue
     case "$folder" in
         */*|.|..)
-            echo "error: '$folder' must be a bare folder name under ~/Dots" >&2
+            echo "error: '$folder' must be a bare folder name under ~/Dotfiles" >&2
             exit 1
             ;;
     esac

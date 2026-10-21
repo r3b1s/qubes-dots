@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run in dom0. Installs git in the "personal" AppVM, clones each URL in
-# CLONE_TARS into /home/user/Dots there, then tar-copies that directory
+# CLONE_TARS into /home/user/Dotfiles there, then tar-copies that directory
 # back into this dom0 user's home directory.
 #
 # Usage:
@@ -13,7 +13,7 @@
 # 'sudo dnf install -y git'` or open a template terminal).
 #
 # One-liner (paste into a dom0 terminal, edit CLONE_TARS first):
-#   VM=personal; DOTS=/home/user/Dots; CLONE_TARS="https://github.com/you/repo1.git,git@github.com:you/repo2.git"; qvm-run --pass-io "$VM" "sudo dnf install -y git" && qvm-run --pass-io "$VM" "mkdir -p $DOTS" && IFS=',' read -ra U <<< "$CLONE_TARS" && for u in "${U[@]}"; do qvm-run --pass-io "$VM" "git -C $DOTS clone '$u'"; done && qvm-run --pass-io "$VM" "tar -cf - -C $(dirname "$DOTS") $(basename "$DOTS")" | tar -xf - -C "$HOME"
+#   VM=personal; DOTS=/home/user/Dotfiles; CLONE_TARS="https://github.com/you/repo1.git,git@github.com:you/repo2.git"; qvm-run --pass-io "$VM" "sudo dnf install -y git" && qvm-run --pass-io "$VM" "mkdir -p $DOTS" && IFS=',' read -ra U <<< "$CLONE_TARS" && for u in "${U[@]}"; do qvm-run --pass-io "$VM" "git -C $DOTS clone '$u'"; done && qvm-run --pass-io "$VM" "tar -cf - -C $(dirname "$DOTS") $(basename "$DOTS")" | tar -xf - -C "$HOME"
 
 set -euo pipefail
 
@@ -22,7 +22,7 @@ print_help() {
 Usage: CLONE_TARS="<url1,url2,...>" ./dom0-clone-dots.sh
 
 Run in dom0. Installs git in the "personal" AppVM, clones each URL in
-CLONE_TARS into /home/user/Dots there, then tar-copies that directory
+CLONE_TARS into /home/user/Dotfiles there, then tar-copies that directory
 back into this dom0 user's home directory.
 
 Environment:
@@ -44,7 +44,7 @@ case "${1:-}" in
 esac
 
 VM=personal
-DOTS_DIR=/home/user/Dots
+DOTS_DIR=/home/user/Dotfiles
 
 if [[ -z "${CLONE_TARS:-}" ]]; then
     echo "error: CLONE_TARS must be set to a comma-separated list of git URLs" >&2
