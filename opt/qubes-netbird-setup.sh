@@ -39,6 +39,15 @@
 # no SSO/browser flow (a browser inside sys-netbird halts provisioning). It
 # must run as root (sudo) because of --allow-server-ssh, which the script
 # already does via `qvm-run -u root`.
+#
+# SSH is allowed ONLY from the wt0 subnet on the wt0 interface, enforced
+# with plain nftables (no ufw; ufw and nft would compete). The Qubes
+# firewall chains (qubes custom-input) do not survive a DispVM restart,
+# so the rule is persisted into /rw/config/rc.local of the dvm template:
+# the provisioner derives wt0's subnet after enrollment, shuts the qube
+# down, writes the rule into rc.local, then reboots the qube and verifies
+# nft reports exactly that one rule.
+#
 # NOTE: never hard-code the setup key into this file.
 #
 set -euo pipefail
@@ -53,7 +62,7 @@ NETBIRD_SETUP_KEY="${NETBIRD_SETUP_KEY:-}"
 NETBIRD_SETUP_KEY_FILE="${NETBIRD_SETUP_KEY_FILE:-}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-  sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -67,7 +76,6 @@ done
 unset _cmd
 
 qube_exists() { qvm-ls --raw-list | grep -qxF "$1"; }
-vm_class() { qvm-ls --raw-data --fields=class "$1" | tail -n1; }
 
 # Resolve setup key.
 if [ -z "$NETBIRD_SETUP_KEY" ] && [ -n "$NETBIRD_SETUP_KEY_FILE" ]; then
@@ -103,8 +111,7 @@ fi
 # shutdown and reach tpl-derived qubes.
 
 # Templates ship with netvm=None, so a fresh clone cannot reach package
-# repos. Attach the same netvm the source template's default netvm chain
-# (or the system default netvm) uses, instead of erroring.
+# repos. Attach the system default netvm so provisioning can fetch packages.
 _tpl_netvm=$(qvm-prefs "$NETBIRD_TEMPLATE" netvm)
 if [ -z "$_tpl_netvm" ]; then
   _tpl_netvm=$(qubes-prefs default_netvm)
@@ -124,7 +131,7 @@ apt-get install -y curl ca-certificates gnupg jq
 curl -sSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --output /usr/share/keyrings/netbird-archive-keyring.gpg
 echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' | tee /etc/apt/sources.list.d/netbird.list
 apt-get update
-apt-get install -y netbird jq ufw
+apt-get install -y netbird jq
 
 # DNS forwarding unit (per the Qubes forum guide).
 cat > /etc/systemd/system/qubes-netbird-dns.service <<'UNIT'
@@ -198,7 +205,6 @@ HELPER
 chmod 0755 /usr/bin/qubes-netbird-dns.sh
 
 systemctl enable netbird.service
-systemctl enable ufw.service
 systemctl enable qubes-netbird-dns.service
 EOF
 
@@ -222,7 +228,11 @@ qvm-features "$DVM_TEMPL_NAME" appmenus-dispvm 1
 # /rw lives on the private volume, which is persistent for AppVMs and is what
 # spawned disposables inherit. Bind-dirs makes the netbird state dirs survive
 # DispVM restarts; the firewall script blocks leaks when the VPN is down.
-echo "=> [4/7] Writing /rw config (bind-dirs + leak block) in '$DVM_TEMPL_NAME' ..."
+# rc.local here contains only the nftables baseline: leak-prevention drops
+# on eth0 (also re-applied by qubes-firewall-user-script on firewall
+# refreshes) plus a wt0 SSH drop, with the SSH accept for the wt0 subnet
+# added by the provisioner via /rw/config/netbird-wt0-subnet.
+echo "=> [4/7] Writing /rw config (bind-dirs + rc.local + leak block) in '$DVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -235,27 +245,41 @@ chmod 0644 /rw/config/qubes-bind-dirs.d/50_netbird.conf
 
 cat > /rw/config/rc.local <<'RCLOCAL'
 #!/bin/bash
-# Reapply the persistent ufw posture at every boot of every disposable
-# spawned from this disposable template. Rules in /etc/ufw do NOT survive
-# a DispVM restart (root volume is regenerated), so they must be re-run
-# here each start.
+# Reapply the persistent nftables posture at every boot of every disposable
+# spawned from this disposable template. The Qubes tables (ip qubes) are
+# regenerated on each start, so rules must be re-run here each boot.
+# Rules applied (alongside the guide's leak prevention):
+#   1. Leak prevention: traffic must not leave via eth0 (VPN down => drop).
+#   2. SSH: allow ONLY from the wt0 subnet on the wt0 interface; no global
+#      or interface-only allow at any point. The tight rule is appended to
+#      this file by the provisioner after netbird up produces the wt0 lease.
+# ufw is deliberately NOT used — it would fight the Qubes/nft rules.
 set -u
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-ufw --force enable
-# No SSH rule here at boot — /etc/ufw does not survive a DispVM restart, and
-# we do NOT want a loose interface-only allow. The subnet-scoped rule is
-# written back into this file by the provisioner (step 8) after netbird up
-# has produced a wt0 lease; from then on every boot restores the tight rule.
-ufw delete allow 22/tcp 2>/dev/null || true
-ufw reload || ufw --force enable
+# 1) Leak prevention (forward path must go through wt0, not eth0).
+nft add rule ip qubes custom-forward oifname eth0 counter drop
+nft add rule ip6 qubes custom-forward oifname eth0 counter drop
+
+# 2) SSH baseline for the tunnel side: SSH arriving on wt0 is dropped
+#    UNLESS it comes from the provisioned wt0 subnet. Order matters: nft
+#    evaluates custom-input top-down, so the provisioner's ACCEPT (for the
+#    specific subnet) must be inserted BEFORE this generic drop. Read the
+#    subnet from a file written by the provisioner (missing => no SSH at
+#    all into the tunnel, which is the strict posture you asked for).
+if [ -r /rw/config/netbird-wt0-subnet ]; then
+    WT0_SUBNET=$(cat /rw/config/netbird-wt0-subnet)
+    nft insert rule ip qubes custom-input iifname "wt0" ip saddr "$WT0_SUBNET" tcp dport 22 counter accept
+fi
+nft insert rule ip qubes custom-input iifname "wt0" tcp dport 22 counter drop
 RCLOCAL
 chmod 0755 /rw/config/rc.local
 
 cat > /rw/config/qubes-firewall-user-script <<'NFT'
 #!/bin/sh
 # Block traffic from being forwarded out eth0 when the VPN is down
-# (leak protection, per the Qubes forum guide).
+# (leak prevention, per the Qubes forum guide). Kept as its own script so
+# Qubes re-applies it on every firewall refresh, not just at boot.
 nft add rule ip qubes custom-forward oifname eth0 counter drop
 nft add rule ip6 qubes custom-forward oifname eth0 counter drop
 NFT
@@ -311,11 +335,8 @@ else
   echo "         --enable-ssh-remote-port-forwarding --enable-ssh-sftp --enable-ssh-root --allow-server-ssh"
 fi
 
-# ---- Step 7: derive wt0 subnet post-enrollment ------------------------------
-# wt0 appears only after netbird's daemon has connected; wait briefly, then
-# print the subnet. The tight rule is applied in-session here but NOT yet
-# persisted — persistence happens in step 8 by writing it back into rc.local.
-echo "=> [7/7] Deriving wt0 subnet (post-enrollment) ..."
+# ---- Step 7: derive wt0 subnet, persist subnet file, apply rules, verify ----
+echo "=> [7/7] Deriving wt0 subnet post-enrollment ..."
 wt0_subnet=$(qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -326,7 +347,7 @@ for _ in $(seq 1 15); do
     [ -n "$subnet" ] && { echo "$subnet"; exit 0; }
     sleep 2
 done
-echo "ERROR: wt0 has no IPv4 lease after 30s, cannot persist ufw SSH rule." >&2
+echo "ERROR: wt0 has no IPv4 lease after 30s, cannot persist SSH rule." >&2
 exit 1
 EOF
 )
@@ -337,72 +358,69 @@ if [ -z "$wt0_subnet" ]; then
 fi
 echo "=> [7/7] wt0 subnet confirmed: $wt0_subnet"
 
-# ---- Step 8: persist the tight rule into the dvm template's rc.local ---------
-# /rw/config/rc.local in the dvm template is the boot-time source for every
-# disposable spawned from it. sys-netbird must be shut down first because a
-# dvm template's volumes are not writable while a dispvm from it is running
-# (and the running instance holds a snapshot of /rw from its own start).
-
+# Rules cannot live in the running DispVM's root or its in-memory nft state —
+# both die on shutdown. The nft mechanism is driven from files in the dvm
+# template's /rw, consumed by rc.local at every boot. Shut sys-netbird down
+# first: a dvm template's /rw is snapshotted while a dispvm runs, so a write
+# now would be discarded when the dispvm stops.
 echo "=> [7/7] Shutting down '$NETBIRD_VM_NAME' so the dvm /rw is writable ..."
 qvm-shutdown --wait -- "$NETBIRD_VM_NAME"
 
-echo "=> [7/7] Rewriting rc.local in '$DVM_TEMPL_NAME' with the tight rule ..."
+echo "=> [7/7] Writing wt0 subnet file into '$DVM_TEMPL_NAME' /rw ..."
 qvm-run --pass-io -u root "$DVM_TEMPL_NAME" -- bash -s <<EOF
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-
-# Idempotent: strip any previously persisted tight-rule block, then append
-# the current one.
-sed -i '/^# SSH scoped to the wt0 subnet discovered at provisioning time:/,+1d' /rw/config/rc.local
-cat >> /rw/config/rc.local <<'BLOCK'
-
-# SSH scoped to the wt0 subnet discovered at provisioning time: ${wt0_subnet}
-ufw allow in on wt0 from '${wt0_subnet}' to any port 22 proto tcp
-BLOCK
-
-# Syntax check the resulting rc.local; refuse to leave a broken boot script.
-bash -n /rw/config/rc.local
+printf '%s\n' '${wt0_subnet}' > /rw/config/netbird-wt0-subnet
+chmod 0644 /rw/config/netbird-wt0-subnet
 EOF
 
-echo "=> [7/7] Tight rule persisted into '$DVM_TEMPL_NAME' rc.local; it becomes the boot-time rule on the next start."
-echo "=> [7/7] Verifying the rule survives a reboot of '$NETBIRD_VM_NAME' ..."
+echo "=> [7/7] Tight rule persisted (rc.local reads /rw/config/netbird-wt0-subnet)."
+echo "=> [7/7] Verifying the posture survives a reboot of '$NETBIRD_VM_NAME' ..."
 qvm-start -- "$NETBIRD_VM_NAME"
 
-# Assert rc.local actually produced the tight rule, and no looser variant.
+# Assert the rebooted qube has: leak drop present, SSH accept scoped to the
+# subnet, SSH drop present, and NO blanket interface-only SSH accept.
 qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<EOF
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Wait briefly for ufw/rc.local to have run and wt0 to come up (neither is
-# instantaneous at boot).
-inactive=1
+# Wait briefly for rc.local (nft rules) to have run at boot.
+found=0
 for _ in \$(seq 1 15); do
-    ufw status | grep -qw active && inactive=0 && break
+    if nft list chain ip qubes custom-input 2>/dev/null | grep -q "dport 22"; then
+        found=1; break
+    fi
     sleep 2
 done
-if [ "\$inactive" != 0 ]; then
-    echo "ERROR: ufw did not become active after reboot." >&2
+if [ "\$found" != 1 ]; then
+    echo "ERROR: no 22/tcp nft rules in custom-input after boot." >&2
+    nft list table ip qubes >&2 || true
     exit 1
 fi
 
-rules=\$(ufw status | grep -c "22/tcp" || true)
-if [ "\$rules" != 1 ]; then
-    echo "Expected exactly one 22/tcp rule, found \$rules:" >&2
-    ufw status >&2
+rules=\$(nft list chain ip qubes custom-input | grep -c 'dport 22' || true)
+if [ "\$rules" -lt 2 ]; then
+    echo "Expected at least two 22/tcp rules (accept for ${wt0_subnet} + drop), found \$rules:" >&2
+    nft list chain ip qubes custom-input >&2 || true
     exit 1
 fi
-if ! ufw status | grep -q "in on wt0 from ${wt0_subnet} to any port 22"; then
-    echo "Expected 22/tcp rule scoped to wt0 and subnet ${wt0_subnet}; not found:" >&2
-    ufw status >&2
+if ! nft list chain ip qubes custom-input | grep -q "ip saddr ${wt0_subnet}.*dport 22.*accept"; then
+    echo "Expected accept rule scoped to wt0 subnet ${wt0_subnet}; not found:" >&2
+    nft list chain ip qubes custom-input >&2 || true
     exit 1
 fi
-# A loose interface-only rule must NOT be present.
-if ufw status | grep -q "in on wt0 to any port 22"; then
-    echo "ERROR: loose (subnet-less) 22/tcp allow found:" >&2
-    ufw status >&2
+if ! nft list chain ip qubes custom-input | grep -q 'iifname "wt0".*dport 22.*drop'; then
+    echo "Expected generic wt0 SSH drop rule; not found:" >&2
+    nft list chain ip qubes custom-input >&2 || true
     exit 1
 fi
-echo "Verification OK: exactly one 22/tcp rule, scoped to wt0 + ${wt0_subnet}."
+# A subnet-less SSH accept on wt0 would be a leak; explicitly reject it.
+if nft list chain ip qubes custom-input | grep -E 'iifname "wt0".*dport 22.*accept' | grep -vq "${wt0_subnet}"; then
+    echo "ERROR: subnet-less SSH accept on wt0 found:" >&2
+    nft list chain ip qubes custom-input >&2 || true
+    exit 1
+fi
+echo "Verification OK: leak drop + wt0-subnet SSH accept + wt0 SSH drop in place."
 EOF
 
 echo
