@@ -91,9 +91,9 @@ fi
 # again: its root volume is committed on shutdown (save_on_stop), unlike an
 # AppVM's (snap_on_start, discarded). That is the whole point of this clone.
 if qube_exists "$NETBIRD_TEMPLATE"; then
-  echo "=> [1/9] TemplateVM '$NETBIRD_TEMPLATE' already exists, reusing."
+  echo "=> [1/7] TemplateVM '$NETBIRD_TEMPLATE' already exists, reusing."
 else
-  echo "=> [1/9] Cloning template '$TEMPLATE_VM' -> '$NETBIRD_TEMPLATE' ..."
+  echo "=> [1/7] Cloning template '$TEMPLATE_VM' -> '$NETBIRD_TEMPLATE' ..."
   qvm-clone "$TEMPLATE_VM" "$NETBIRD_TEMPLATE"
 fi
 
@@ -108,13 +108,13 @@ fi
 _tpl_netvm=$(qvm-prefs "$NETBIRD_TEMPLATE" netvm)
 if [ -z "$_tpl_netvm" ]; then
   _tpl_netvm=$(qubes-prefs default_netvm)
-  echo "=> [2/9] Attaching '$NETBIRD_TEMPLATE' to default netvm: $_tpl_netvm"
+  echo "=> [2/7] Attaching '$NETBIRD_TEMPLATE' to default netvm: $_tpl_netvm"
   qvm-prefs "$NETBIRD_TEMPLATE" netvm "$_tpl_netvm"
 fi
-echo "=> [2/9] '$NETBIRD_TEMPLATE' netvm: $_tpl_netvm"
+echo "=> [2/7] '$NETBIRD_TEMPLATE' netvm: $_tpl_netvm"
 unset _tpl_netvm
 
-echo "=> [2/9] Installing netbird packages + DNS unit in '$NETBIRD_TEMPLATE' ..."
+echo "=> [2/7] Installing netbird packages + DNS unit in '$NETBIRD_TEMPLATE' ..."
 qvm-run --pass-io -u root "$NETBIRD_TEMPLATE" -- bash -s <<'EOF'
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -124,7 +124,7 @@ apt-get install -y curl ca-certificates gnupg jq
 curl -sSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --output /usr/share/keyrings/netbird-archive-keyring.gpg
 echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' | tee /etc/apt/sources.list.d/netbird.list
 apt-get update
-apt-get install -y netbird jq
+apt-get install -y netbird jq ufw
 
 # DNS forwarding unit (per the Qubes forum guide).
 cat > /etc/systemd/system/qubes-netbird-dns.service <<'UNIT'
@@ -198,10 +198,11 @@ HELPER
 chmod 0755 /usr/bin/qubes-netbird-dns.sh
 
 systemctl enable netbird.service
+systemctl enable ufw.service
 systemctl enable qubes-netbird-dns.service
 EOF
 
-echo "=> [2/9] Shutting down '$NETBIRD_TEMPLATE' to commit root volume ..."
+echo "=> [2/7] Shutting down '$NETBIRD_TEMPLATE' to commit root volume ..."
 qvm-shutdown --wait -- "$NETBIRD_TEMPLATE"
 
 # ---- Step 3: AppVM disposable template (inherits the TemplateVM root) -------
@@ -209,9 +210,9 @@ qvm-shutdown --wait -- "$NETBIRD_TEMPLATE"
 # DispVMs). Its /rw (private volume) is persistent and inherited by the
 # disposables spawned from it — that is where /rw config goes.
 if qube_exists "$DVM_TEMPL_NAME"; then
-  echo "=> [3/9] Disposable template '$DVM_TEMPL_NAME' already exists, reusing."
+  echo "=> [3/7] Disposable template '$DVM_TEMPL_NAME' already exists, reusing."
 else
-  echo "=> [3/9] Creating disposable template '$DVM_TEMPL_NAME' (template: $NETBIRD_TEMPLATE) ..."
+  echo "=> [3/7] Creating disposable template '$DVM_TEMPL_NAME' (template: $NETBIRD_TEMPLATE) ..."
   qvm-create --template "$NETBIRD_TEMPLATE" --label black "$DVM_TEMPL_NAME"
 fi
 qvm-prefs "$DVM_TEMPL_NAME" template_for_dispvms true
@@ -221,7 +222,7 @@ qvm-features "$DVM_TEMPL_NAME" appmenus-dispvm 1
 # /rw lives on the private volume, which is persistent for AppVMs and is what
 # spawned disposables inherit. Bind-dirs makes the netbird state dirs survive
 # DispVM restarts; the firewall script blocks leaks when the VPN is down.
-echo "=> [4/9] Writing /rw config (bind-dirs + leak block) in '$DVM_TEMPL_NAME' ..."
+echo "=> [4/7] Writing /rw config (bind-dirs + leak block) in '$DVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -231,6 +232,25 @@ cat > /rw/config/qubes-bind-dirs.d/50_netbird.conf <<'CONF'
 binds+=( '/var/lib/netbird' '/var/log/netbird' '/var/cache/netbird' )
 CONF
 chmod 0644 /rw/config/qubes-bind-dirs.d/50_netbird.conf
+
+cat > /rw/config/rc.local <<'RCLOCAL'
+#!/bin/bash
+# Reapply the persistent ufw posture at every boot of every disposable
+# spawned from this disposable template. Rules in /etc/ufw do NOT survive
+# a DispVM restart (root volume is regenerated), so they must be re-run
+# here each start.
+set -u
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+ufw --force enable
+# No SSH rule here at boot — /etc/ufw does not survive a DispVM restart, and
+# we do NOT want a loose interface-only allow. The subnet-scoped rule is
+# written back into this file by the provisioner (step 8) after netbird up
+# has produced a wt0 lease; from then on every boot restores the tight rule.
+ufw delete allow 22/tcp 2>/dev/null || true
+ufw reload || ufw --force enable
+RCLOCAL
+chmod 0755 /rw/config/rc.local
 
 cat > /rw/config/qubes-firewall-user-script <<'NFT'
 #!/bin/sh
@@ -242,15 +262,15 @@ NFT
 chmod 0755 /rw/config/qubes-firewall-user-script
 EOF
 
-echo "=> [4/9] Shutting down '$DVM_TEMPL_NAME' to commit /rw config ..."
+echo "=> [4/7] Shutting down '$DVM_TEMPL_NAME' to commit /rw config ..."
 qvm-shutdown --wait -- "$DVM_TEMPL_NAME"
 
 # ---- Step 5: the disposable NetBird qube ------------------------------------
 # Created only now, after both the template root and the dvm /rw are final.
 if qube_exists "$NETBIRD_VM_NAME"; then
-  echo "=> [5/9] Qube '$NETBIRD_VM_NAME' already exists, reusing."
+  echo "=> [5/7] Qube '$NETBIRD_VM_NAME' already exists, reusing."
 else
-  echo "=> [5/9] Creating disposable qube '$NETBIRD_VM_NAME' from '$DVM_TEMPL_NAME' ..."
+  echo "=> [5/7] Creating disposable qube '$NETBIRD_VM_NAME' from '$DVM_TEMPL_NAME' ..."
   qvm-create --disp --template "$DVM_TEMPL_NAME" "$NETBIRD_VM_NAME"
 fi
 
@@ -260,15 +280,15 @@ fi
 qvm-features "$NETBIRD_VM_NAME" netbird-dns 1
 
 # Provides network
-echo "=> [5/9] Enabling 'Provides network' on '$NETBIRD_VM_NAME' ..."
+echo "=> [5/7] Enabling 'Provides network' on '$NETBIRD_VM_NAME' ..."
 qvm-prefs "$NETBIRD_VM_NAME" provides_network true
 
 # ---- Step 6: start and enroll ------------------------------------------------
-echo "=> [6/9] Starting '$NETBIRD_VM_NAME' ..."
+echo "=> [6/7] Starting '$NETBIRD_VM_NAME' ..."
 qvm-start -- "$NETBIRD_VM_NAME"
 
 if [ -n "$NETBIRD_SETUP_KEY" ]; then
-  echo "=> [6/9] Enrolling '$NETBIRD_VM_NAME' into NetBird (key not shown) ..."
+  echo "=> [6/7] Enrolling '$NETBIRD_VM_NAME' into NetBird (key not shown) ..."
   # Disable xtrace so the key never appears in any log; pass via stdin env.
   qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<EOF
 set +x
@@ -284,14 +304,107 @@ netbird up --no-browser --setup-key "${NETBIRD_SETUP_KEY}" \
   --allow-server-ssh
 EOF
 else
-  echo "=> [6/9] No setup key supplied. Run this yourself inside the qube:"
+  echo "=> [6/7] No setup key supplied. Run this yourself inside the qube:"
   echo "       qvm-run \"$NETBIRD_VM_NAME\" term"
   echo "       then:  sudo netbird up --no-browser --setup-key <SETUP_KEY> \\"
   echo "         --wireguard-port 51821 --disable-ssh-auth --enable-ssh-local-port-forwarding \\"
   echo "         --enable-ssh-remote-port-forwarding --enable-ssh-sftp --enable-ssh-root --allow-server-ssh"
 fi
 
-# ---- Steps 7-9: summary -----------------------------------------------------
+# ---- Step 7: derive wt0 subnet post-enrollment ------------------------------
+# wt0 appears only after netbird's daemon has connected; wait briefly, then
+# print the subnet. The tight rule is applied in-session here but NOT yet
+# persisted — persistence happens in step 8 by writing it back into rc.local.
+echo "=> [7/7] Deriving wt0 subnet (post-enrollment) ..."
+wt0_subnet=$(qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<'EOF'
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Wait briefly for the wt0 lease; it appears asynchronously after netbird up.
+for _ in $(seq 1 15); do
+    subnet=$(ip -4 -o addr show dev wt0 2>/dev/null | awk '{split($4,a,"/"); print a[1]"/"a[2]}' | head -n1)
+    [ -n "$subnet" ] && { echo "$subnet"; exit 0; }
+    sleep 2
+done
+echo "ERROR: wt0 has no IPv4 lease after 30s, cannot persist ufw SSH rule." >&2
+exit 1
+EOF
+)
+
+if [ -z "$wt0_subnet" ]; then
+  echo "ERROR: wt0 subnet unavailable after netbird up." >&2
+  exit 1
+fi
+echo "=> [7/7] wt0 subnet confirmed: $wt0_subnet"
+
+# ---- Step 8: persist the tight rule into the dvm template's rc.local ---------
+# /rw/config/rc.local in the dvm template is the boot-time source for every
+# disposable spawned from it. sys-netbird must be shut down first because a
+# dvm template's volumes are not writable while a dispvm from it is running
+# (and the running instance holds a snapshot of /rw from its own start).
+
+echo "=> [7/7] Shutting down '$NETBIRD_VM_NAME' so the dvm /rw is writable ..."
+qvm-shutdown --wait -- "$NETBIRD_VM_NAME"
+
+echo "=> [7/7] Rewriting rc.local in '$DVM_TEMPL_NAME' with the tight rule ..."
+qvm-run --pass-io -u root "$DVM_TEMPL_NAME" -- bash -s <<EOF
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Idempotent: strip any previously persisted tight-rule block, then append
+# the current one.
+sed -i '/^# SSH scoped to the wt0 subnet discovered at provisioning time:/,+1d' /rw/config/rc.local
+cat >> /rw/config/rc.local <<'BLOCK'
+
+# SSH scoped to the wt0 subnet discovered at provisioning time: ${wt0_subnet}
+ufw allow in on wt0 from '${wt0_subnet}' to any port 22 proto tcp
+BLOCK
+
+# Syntax check the resulting rc.local; refuse to leave a broken boot script.
+bash -n /rw/config/rc.local
+EOF
+
+echo "=> [7/7] Tight rule persisted into '$DVM_TEMPL_NAME' rc.local; it becomes the boot-time rule on the next start."
+echo "=> [7/7] Verifying the rule survives a reboot of '$NETBIRD_VM_NAME' ..."
+qvm-start -- "$NETBIRD_VM_NAME"
+
+# Assert rc.local actually produced the tight rule, and no looser variant.
+qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<EOF
+set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Wait briefly for ufw/rc.local to have run and wt0 to come up (neither is
+# instantaneous at boot).
+inactive=1
+for _ in \$(seq 1 15); do
+    ufw status | grep -qw active && inactive=0 && break
+    sleep 2
+done
+if [ "\$inactive" != 0 ]; then
+    echo "ERROR: ufw did not become active after reboot." >&2
+    exit 1
+fi
+
+rules=\$(ufw status | grep -c "22/tcp" || true)
+if [ "\$rules" != 1 ]; then
+    echo "Expected exactly one 22/tcp rule, found \$rules:" >&2
+    ufw status >&2
+    exit 1
+fi
+if ! ufw status | grep -q "in on wt0 from ${wt0_subnet} to any port 22"; then
+    echo "Expected 22/tcp rule scoped to wt0 and subnet ${wt0_subnet}; not found:" >&2
+    ufw status >&2
+    exit 1
+fi
+# A loose interface-only rule must NOT be present.
+if ufw status | grep -q "in on wt0 to any port 22"; then
+    echo "ERROR: loose (subnet-less) 22/tcp allow found:" >&2
+    ufw status >&2
+    exit 1
+fi
+echo "Verification OK: exactly one 22/tcp rule, scoped to wt0 + ${wt0_subnet}."
+EOF
+
 echo
 echo "===== Summary ====="
 echo "  TemplateVM          : $NETBIRD_TEMPLATE (clone of $TEMPLATE_VM; holds packages + unit)"
