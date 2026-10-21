@@ -1,0 +1,3 @@
+#!/bin/sh
+# Development-only dom0 shell service. Do not ship on a real system.
+exec /bin/bash -l

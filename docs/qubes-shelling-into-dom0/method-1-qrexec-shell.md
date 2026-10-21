@@ -15,6 +15,18 @@ RPC service in dom0 that runs a shell for any caller the policy allows.
 
 ## Setup (in dom0)
 
+`opt/dom0-shell/` in this repo holds copies of both files and a script that
+installs them (steps 1–2 below) with the policy linted first, or removes
+them again:
+
+```console
+[user @dom0 ~]$ sudo ~/Dotfiles/qubes-dots/opt/dom0-shell/qubes-dom0-shell-setup.sh            # source qube: qubesdev
+[user @dom0 ~]$ sudo DEV_QUBE=dev-vm ~/Dotfiles/qubes-dots/opt/dom0-shell/qubes-dom0-shell-setup.sh
+[user @dom0 ~]$ sudo ~/Dotfiles/qubes-dots/opt/dom0-shell/qubes-dom0-shell-setup.sh --remove
+```
+
+To do it by hand:
+
 **1. Create the service file** `/etc/qubes-rpc/mgmt.dev.Shell`:
 
 ```sh

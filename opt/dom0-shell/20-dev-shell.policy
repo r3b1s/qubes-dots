@@ -1,0 +1,5 @@
+# Development-only: let qubesdev open a dom0 shell through mgmt.dev.Shell.
+# Columns: service argument source target action. The target is dom0
+# because callers run `qrexec-client-vm dom0 mgmt.dev.Shell`; a target of
+# @default would only match callers asking for @default.
+mgmt.dev.Shell * qubesdev dom0 allow
