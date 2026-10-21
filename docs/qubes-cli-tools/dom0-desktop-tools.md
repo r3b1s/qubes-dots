@@ -12,7 +12,7 @@ Repo-relevant set, mapped to where we use them:
 | `qubes-i3status` | `qubes-desktop-linux-i3` (`i3-settings-qubes`) | `i3/conf.d/15-bar.conf` `status_command` |
 | `qubes-i3-sensible-terminal` | `qubes-desktop-linux-i3` | `$terminal`/`$console` vars in `00-qubes-base.conf` |
 | `qubes-i3-xdg-autostart` | `qubes-desktop-linux-i3` | `$desktop_autostart` var, exec'd at startup |
-| `qubes-input-sender` | `qubes-core-dom0` | keyboard/mouse injection to `sys-usb` (`qubes.InputKeyboard` RPC) |
+| `qubes-input-sender` | `qubes-core-dom0` | keyboard/mouse injection (`qubes.InputKeyboard` RPC) |
 | `qvm-appmenus` | `qubes-desktop-linux-common` | app-menu generation behind `$mod+d` entries |
 | `j4-dmenu-desktop` / `i3-dmenu-desktop` | third-party / upstream | our `$dmenu` launcher |
 
@@ -40,16 +40,13 @@ tray/applets). Vendored into the baseline as `$desktop_autostart`.
 
 ### `qubes-input-sender` — trusted input injection
 
-Dom0-side helper for the USB keyboard/mouse qubes: when a raw input device
-is attached to `sys-usb`, dom0 runs `qubes-input-sender-keyboard@<device>`
-/ `...-mouse@<device>` services, which read the real device in dom0 and
+Dom0-side helper for input injection: when a remote input device
+(USB keyboard/mouse or other source) is attached elsewhere in the
+system, dom0 runs `qubes-input-sender-keyboard@<device>`
+/ `...-mouse@<device>` services, which read the device in dom0 and
 forward events over the `qubes.InputKeyboard` / `qubes.InputMouse` qrexec
-RPC into the target qube. dom0 stays the trust boundary; the USB qube
-handles only the untrusted hardware side.
-
-Relevance: `docs/kanata-sys-usb.md` plans to replace
-`qubes-input-sender` for keyboard nodes whose device is a Kanata virtual
-device (Vendor `0001`), while leaving real devices on the stock binary.
+RPC into the target qube. dom0 stays the trust boundary; the device
+side stays outside dom0.
 
 ### `qvm-appmenus` — menu entry cache
 

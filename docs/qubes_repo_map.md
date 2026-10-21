@@ -40,7 +40,7 @@ What the user actually *sees* of a qube, each a self-contained protocol:
 | [qubes-gui-daemon](https://github.com/QubesOS/qubes-gui-daemon) + [qubes-gui-common](https://github.com/QubesOS/qubes-gui-common) | dom0 side of GUI virtualization: presents each VM's windows as local X windows, per-VM X server isolated via dom0 proxy. |
 | [qubes-gui-agent-linux](https://github.com/QubesOS/qubes-gui-agent-linux) | In-VM GUI agent: window decoration copy, clipboard, fullscreen notification. ([qubes-gui-agent-wayland](https://github.com/QubesOS/qubes-gui-agent-wayland), [qubes-gui-rust](https://github.com/QubesOS/qubes-gui-rust) are the ongoing Rust/Wayland rework.) |
 | [qubes-app-linux-input-proxy](https://github.com/QubesOS/qubes-app-linux-input-proxy) | Keyboard/mouse injection path from dom0 to VMs. |
-| [qubes-app-linux-usb-proxy](https://github.com/QubesOS/qubes-app-linux-usb-proxy) | sys-usb's USBIP-over-qrexec proxy (device passthrough without trusting the VM). |
+| [qubes-app-linux-usb-proxy](https://github.com/QubesOS/qubes-app-linux-usb-proxy) | USBIP-over-qrexec proxy (device passthrough without trusting the VM). |
 | [qubes-notification-proxy](https://github.com/QubesOS/qubes-notification-proxy) | dom0 notification channel for VMs (dunstify from a qube goes through here). |
 | [qubes-remote-support](https://github.com/QubesOS/qubes-remote-support) | Support-share plumbing. |
 | [qubes-app-linux-split-gpg](https://github.com/QubesOS/qubes-app-linux-split-gpg) | Split GPG/SSH: keys live in a vault VM; qrexec mediates signing/SSH

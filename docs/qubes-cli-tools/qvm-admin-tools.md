@@ -159,7 +159,7 @@ $ qvm-firewall work reset
 
 ```console
 $ qvm-device usb list                    # or: block | pci | mic
-$ qvm-device usb attach work sys-usb:2-1
+$ qvm-device usb attach work <usbvm>:2-1
 $ qvm-device block detach work
 ```
 

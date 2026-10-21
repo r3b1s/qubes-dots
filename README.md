@@ -41,7 +41,7 @@ i3/risky-utilities/   reference only, never auto-included
 bin/               helper scripts (x11-* prefix), symlinked to ~/.local/bin
 dunst/dunstrc      notifications
 install.sh         symlinks everything into place (user-agnostic, re-runnable)
-kanata/            sys-usb kanata (enthium layout); run install-kanata-sys-usb.sh from dom0 — not part of i3
+kanata/            dom0 kanata (enthium layout); run install-kanata-dom0.sh in dom0 — not part of i3
 
 qrexec/            the dom0 dev shell — see "Developing against dom0"
   dev.Shell           qrexec service, installed to /etc/qubes-rpc/ in dom0
