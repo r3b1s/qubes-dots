@@ -34,18 +34,21 @@ requested. Make it executable:
 **2. Write the policy** `/etc/qubes/policy.d/20-dev-shell.policy`:
 
 ```text
-mgmt.dev.Shell * dev-vm @default allow target=dom0
+mgmt.dev.Shell * dev-vm dom0 allow
 ```
+
+The columns are `service argument source target action`. The **target**
+column must match what the caller names: `qrexec-client-vm dom0 …` asks
+for `dom0`, so the rule's target is `dom0`. A rule with target `@default`
+(plus `target=dom0`) only matches a caller that asks for `@default`; used
+with `qrexec-client-vm dom0 …` it never matches, and the call falls through
+to the implicit deny ("Denied: mgmt.dev.Shell from dev-vm to dom0").
 
 Scope it to your dev qube only (`dev-vm`), never `@anyvm`. First match
 wins; everything else is implicitly denied.
 
-**3. Restart the source qube's qrexec daemon** (policy is read
-per-connection, but a running session caches):
-
-```console
-[user @dev-vm ~]$ systemctl --user restart qubes-qrexec-agent  # or reboot the qube
-```
+**3. No restart needed.** dom0's policy daemon reads `policy.d` on every
+call, so the rule applies to the next `qrexec-client-vm` invocation.
 
 ## Use
 
@@ -53,7 +56,12 @@ From the dev qube:
 
 ```console
 [user @dev-vm ~]$ qrexec-client-vm dom0 mgmt.dev.Shell
-[user @dev-vm ~]$ qvm-run -p dev-vm 'echo hi | qrexec-client-vm dom0 mgmt.dev.Shell'
+```
+
+or, from dom0, driving the same call inside the dev qube:
+
+```console
+[user @dom0 ~]$ qvm-run -p dev-vm 'echo hostname | qrexec-client-vm dom0 mgmt.dev.Shell'
 ```
 
 Or through the Python client, which handles the socket plumbing:
