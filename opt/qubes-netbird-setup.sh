@@ -66,10 +66,22 @@ fi
 
 # ---- Step 1: DispVM template ------------------------------------------------
 if qube_exists "$DISPVM_TEMPL_NAME"; then
-  echo "=> [1/14] DispVM template '$DISPVM_TEMPL_NAME' already exists, reusing."
+  _base=$(qvm-ls --raw-data "$DISPVM_TEMPL_NAME" | awk -F'|' '{print $4}')
+  if [ "$_base" != "$TEMPLATE_VM" ]; then
+    echo "ERROR: '$DISPVM_TEMPL_NAME' already exists but is based on '$_base', not '$TEMPLATE_VM'." >&2
+    echo "Remove it first (qvm-remove --force-root $DISPVM_TEMPL_NAME) or set TEMPLATE_VM=$_base and rerun." >&2
+    exit 1
+  fi
+  echo "=> [1/14] DispVM template '$DISPVM_TEMPL_NAME' already exists (based on '$_base'), reusing."
+  unset _base
 else
-  echo "=> [1/14] Cloning template '$TEMPLATE_VM' -> '$DISPVM_TEMPL_NAME' (plain clone) ..."
-  qvm-clone --class AppVM "$TEMPLATE_VM" "$DISPVM_TEMPL_NAME"
+  echo "=> [1/14] Cloning template '$TEMPLATE_VM' -> '$DISPVM_TEMPL_NAME' as AppVM ..."
+  # qvm-clone has no --template/--property argument. Converting a TemplateVM
+  # source with --class AppVM leaves the new AppVM's template property at the
+  # *system default template* (e.g. fedora-44-xfce), which is why apt-get
+  # wasn't found. Pin it explicitly right after the clone.
+  qvm-clone --class AppVM "$TEMPLATE_VM" "$DISPVM_TEMPL_NAME" --quiet
+  qvm-prefs "$DISPVM_TEMPL_NAME" template "$TEMPLATE_VM"
 
   # A DispVM's template must be an AppVM with template_for_dispvms=True
   # (note plural). Error otherwise: "template for disposable (tpl-netbird)
@@ -96,6 +108,7 @@ qvm-features "$NETBIRD_VM_NAME" netbird-dns 1
 echo "=> [4/14] Installing netbird packages in '$DISPVM_TEMPL_NAME' ..."
 qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y curl ca-certificates gnupg jq
