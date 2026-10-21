@@ -313,69 +313,6 @@ Two properties are worth stating rather than discovering:
 The intended home for this is a test machine. It will work identically on a
 real one, which is the hazard: nothing about it will feel wrong there.
 
-## Key migration decisions
-
-- **Special workspaces → named i3 workspaces.** Every hyprland scratchpad
-  keeps its bind but toggles a named workspace instead. `bin/x11-ws-app`
-  reproduces the toggle (press again to bounce back) and launch-on-empty
-  behavior. Move-to binds (`$mod+Shift+Ctrl+…`) are plain `move container`.
-- **Master layout → i3 layouts.** `$mod+s` toggles tabbed, `$mod+Shift+s`
-  stacking, `$mod+Ctrl+s` split orientation, `$mod+Alt+BackSpace` cycles all
-  layouts. `$mod+n` / `$mod+Shift+n` walk the container tree (focus
-  parent/child) instead of rolling the master stack.
-- **hyprland swap vs move** collapse into i3 `move`; the old
-  "move without swapping" chord (`$mod+Shift+Ctrl+hjkl`) now moves windows
-  across outputs.
-- **The fullscreen matrix** (maximize / fake / in-client / typical) collapses
-  to i3's `fullscreen toggle` on both `$mod+f` and `$mod+Alt+f`.
-- **Submaps → i3 modes**, indicated in i3bar instead of notify-send.
-- **delta-resize script → native i3** `resize … 6 ppt`.
-- **walker/omarchy-menu → Qubes' own menus**: `$mod+Return` = j4-dmenu-desktop
-  (upstream's invocation), `$mod+Shift+d` = qubes-app-menu, `$mod+space` =
-  dmenu_run for raw dom0 binaries, `$mod+Escape` = power menu, keybind
-  cheatsheet on `$mod+Shift+Ctrl+Alt+k`.
-- **mako → dunst** on the same `$mod+x` family; volume/brightness OSD is done
-  with dunst progress notifications.
-- **Lock** is `$mod+Shift+Ctrl+Alt+l` (the old omarchy `$mod+Ctrl+l` slot is
-  taken by resize) plus the power menu. Both run the baseline's `$lock`, and
-  `xss-lock --transfer-sleep-lock` covers suspend.
-- **`focus mode_toggle`** sits on `$mod+Shift+Ctrl+space`; upstream's
-  `$mod+space` slot is spent on `dmenu_run`.
-
-## Intentionally dropped
-
-Wayland/hyprland-only or explicitly unwanted; listed so their absence is a
-decision, not an accident:
-
-- Discord mute passthrough (`$mod+apostrophe`) — not wanted
-- soundboard binds (`$mod+[Shift/Alt]+apostrophe`) — machine-local, gitignored upstream
-- voxtype dictation binds (`$mod+d` is free) — Wayland stack
-- window transparency / rounding toggles, "i3 mode" toggle — needs a
-  compositor; the point of i3 mode was to look like i3
-- monitor scaling binds (`$mod+[Shift]+equal/minus/slash`) — no fractional
-  per-monitor scaling on X11
-- neowall wallpaper selector, waybar position binds, background/theme menus
-- universal copy/paste/cut (`$mod+c/v`), emoji picker, OCR, share/capture
-  menus, reminders, audio-output switcher — omarchy tooling
-- Moonlight focus toggle (`Shift+Ctrl+Alt+z`) — hyprland `sendshortcut` hack
-- Alt+Tab window cycling — no native i3 equivalent
-- **i3's scratchpad** (upstream's `$mod+minus` / `$mod+Shift+minus`) — named
-  workspaces cover the same ground and stay addressable in the bar, so
-  `$mod+minus` swaps to the bespoke `util2` workspace instead
-- border-width cycling — the window border is a Qubes trust indicator, so it
-  stays fixed at the `i3-settings-qubes` baseline
-- `lazydocker` (`$mod+Shift+d`), `easyeffects` + `wiremix` (`$mod+Shift+w`),
-  `nmtui` wifi (`$mod+Ctrl+w`), `bluetui` bluetooth (`$mod+Alt+w`) — dom0
-  owns no NIC, Bluetooth radio, docker daemon, or audio-effects stack for
-  these to manage
-- `nautilus` (`$mod+e`), `tmux-sessionizer` (`$mod+Ctrl+t`), `inputbox`
-  (`$mod+q`), `gnome-calculator` (`XF86Calculator`) — omarchy-era personal
-  workflow with no qubes equivalent
-- `bin/x11-webapp` — webapp binds now hand the URL to the browser AppVM's
-  own `xdg-open`, which loses the chromeless `--app=` window
-- `btop` (`$mod+p`, `$mod+Alt+p`) — kept as a workspace bind, but switched to
-  plain `top`, which dom0 already ships; the direct-launch `$mod+Alt+p`
-  variant is gone
 
 ## Notes
 
