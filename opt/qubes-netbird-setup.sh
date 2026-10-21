@@ -1,8 +1,9 @@
 #!/bin/bash
 #
-# qubes-netbird-setup.sh — dom0 helper: set up NetBird in Qubes OS using a
-# Debian template, a DispVM template and a disposable service qube, per
-# https://forum.qubes-os.org/t/netbird-setup/42139
+# qubes-netbird-setup.sh — dom0 helper: set up NetBird in Qubes OS as a
+# network-providing disposable service qube.
+# Based on https://forum.qubes-os.org/t/netbird-setup/42139, adapted to the
+# Qubes 4.2+/4.3 volume model.
 #
 # Usage:
 #   ./qubes-netbird-setup.sh
@@ -11,9 +12,24 @@
 #   ./qubes-netbird-setup.sh --help
 #
 # Variables (edit here or override via environment):
-#   TEMPLATE_VM           base OS template to clone (default: debian-13-xfce)
-#   DISPVM_TEMPL_NAME     DispVM template created by clone (default: tpl-netbird)
-#   NETBIRD_VM_NAME       disposable qube running NetBird (default: sys-netbird)
+#   TEMPLATE_VM          base OS template to clone (default: debian-13-xfce)
+#   NETBIRD_TEMPLATE     TemplateVM clone that holds the root-filesystem
+#                        provisioning (packages, unit, helper script)
+#                        (default: tpl-netbird)
+#   DVM_TEMPL_NAME       AppVM disposable template holding /rw config
+#                        (default: dvm-netbird)
+#   NETBIRD_VM_NAME      named disposable qube running NetBird
+#                        (default: sys-netbird)
+#
+# Why three qubes (Qubes volume model):
+#   - TemplateVM root changes persist; AppVM root changes do NOT
+#     (AppVM root = snap-on-start snapshot of its template, discarded at
+#     shutdown). So packages and /etc, /usr files go in the TemplateVM.
+#   - A DisposableVM's template must be an AppVM with
+#     template_for_dispvms=True; only its /rw (private volume) is
+#     customizable and inherited by spawned disposables. So /rw config
+#     (bind-dirs, firewall script) goes in the AppVM dvm template.
+#   - sys-netbird is the DispVM that actually runs netbird.
 #
 # The setup key may come from:
 #   - environment variable NETBIRD_SETUP_KEY
@@ -21,27 +37,24 @@
 # If empty, the script prints instructions for running `netbird up` yourself.
 # NOTE: never hard-code the setup key into this file.
 #
-# Steps: template clone (1) → template provisioning (2-8) → DispVM creation +
-# flags (9) → start + netbird up (10) → verify (11-13). sys-netbird is created
-# only after the template is fully configured.
-#
 set -euo pipefail
 umask 077
 shopt -s inherit_errexit 2>/dev/null || true
 
 TEMPLATE_VM="${TEMPLATE_VM:-debian-13-xfce}"
-DISPVM_TEMPL_NAME="${DISPVM_TEMPL_NAME:-tpl-netbird}"
+NETBIRD_TEMPLATE="${NETBIRD_TEMPLATE:-tpl-netbird}"
+DVM_TEMPL_NAME="${DVM_TEMPL_NAME:-dvm-netbird}"
 NETBIRD_VM_NAME="${NETBIRD_VM_NAME:-sys-netbird}"
 NETBIRD_SETUP_KEY="${NETBIRD_SETUP_KEY:-}"
 NETBIRD_SETUP_KEY_FILE="${NETBIRD_SETUP_KEY_FILE:-}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
 # Dom0 tool check.
-for _cmd in qvm-clone qvm-create qvm-run qvm-prefs qvm-features qvm-shutdown qvm-ls bash; do
+for _cmd in qvm-clone qvm-create qvm-run qvm-prefs qvm-features qvm-shutdown qvm-start qvm-ls bash; do
   if ! command -v "$_cmd" >/dev/null 2>&1; then
     echo "ERROR: required tool not found in dom0: $_cmd" >&2
     exit 1
@@ -50,8 +63,9 @@ done
 unset _cmd
 
 qube_exists() { qvm-ls --raw-list | grep -qxF "$1"; }
+vm_class() { qvm-ls --raw-data --fields=class "$1" | tail -n1; }
 
-# ---- Step 13 prerequisite: resolve setup key (before printing key handling) --
+# Resolve setup key.
 if [ -z "$NETBIRD_SETUP_KEY" ] && [ -n "$NETBIRD_SETUP_KEY_FILE" ]; then
   if [ -r "$NETBIRD_SETUP_KEY_FILE" ]; then
     # first line only; file should contain just the key
@@ -68,34 +82,23 @@ else
   echo "=> No setup key provided (NETBIRD_SETUP_KEY / NETBIRD_SETUP_KEY_FILE empty)."
 fi
 
-# ---- Step 1: DispVM template ------------------------------------------------
-if qube_exists "$DISPVM_TEMPL_NAME"; then
-  _base=$(qvm-ls --raw-data "$DISPVM_TEMPL_NAME" | awk -F'|' '{print $4}')
-  if [ "$_base" != "$TEMPLATE_VM" ]; then
-    echo "ERROR: '$DISPVM_TEMPL_NAME' already exists but is based on '$_base', not '$TEMPLATE_VM'." >&2
-    echo "Remove it first (qvm-remove --force-root $DISPVM_TEMPL_NAME) or set TEMPLATE_VM=$_base and rerun." >&2
-    exit 1
-  fi
-  echo "=> [1/13] DispVM template '$DISPVM_TEMPL_NAME' already exists (based on '$_base'), reusing."
-  unset _base
+# ---- Step 1: TemplateVM clone (root-filesystem provisioning target) ---------
+# qvm-clone preserves the class, so a clone of a TemplateVM is a TemplateVM
+# again: its root volume is committed on shutdown (save_on_stop), unlike an
+# AppVM's (snap_on_start, discarded). That is the whole point of this clone.
+if qube_exists "$NETBIRD_TEMPLATE"; then
+  echo "=> [1/9] TemplateVM '$NETBIRD_TEMPLATE' already exists, reusing."
 else
-  echo "=> [1/13] Cloning template '$TEMPLATE_VM' -> '$DISPVM_TEMPL_NAME' as AppVM ..."
-  # qvm-clone has no --template/--property argument. Converting a TemplateVM
-  # source with --class AppVM leaves the new AppVM's template property at the
-  # *system default template* (e.g. fedora-44-xfce), which is why apt-get
-  # wasn't found. Pin it explicitly right after the clone.
-  qvm-clone --class AppVM "$TEMPLATE_VM" "$DISPVM_TEMPL_NAME" --quiet
-  qvm-prefs "$DISPVM_TEMPL_NAME" template "$TEMPLATE_VM"
-
-  # A DispVM's template must be an AppVM with template_for_dispvms=True
-  # (note plural). Error otherwise: "template for disposable (tpl-netbird)
-  # needs to be an AppVM with template_for_dispvms=True".
-  qvm-prefs "$DISPVM_TEMPL_NAME" template_for_dispvms true
+  echo "=> [1/9] Cloning template '$TEMPLATE_VM' -> '$NETBIRD_TEMPLATE' ..."
+  qvm-clone "$TEMPLATE_VM" "$NETBIRD_TEMPLATE"
 fi
 
-# ---- Step 2: install NetBird in the DispVM template ------------------------
-echo "=> [2/13] Installing netbird packages in '$DISPVM_TEMPL_NAME' ..."
-qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
+# ---- Step 2: provision root filesystem in the TemplateVM --------------------
+# Packages, the DNS unit and the helper script live in /usr and /etc, i.e. on
+# the root volume. They must be installed in a TemplateVM to survive its
+# shutdown and reach tpl-derived qubes.
+echo "=> [2/9] Installing netbird packages + DNS unit in '$NETBIRD_TEMPLATE' ..."
+qvm-run --pass-io -u root "$NETBIRD_TEMPLATE" -- bash -s <<'EOF'
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export DEBIAN_FRONTEND=noninteractive
@@ -105,13 +108,8 @@ curl -sSL https://pkgs.netbird.io/debian/public.key | gpg --dearmor --output /us
 echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' | tee /etc/apt/sources.list.d/netbird.list
 apt-get update
 apt-get install -y netbird jq
-systemctl enable netbird.service
-EOF
 
-# ---- Step 3: qubes-netbird-dns systemd unit --------------------------------
-echo "=> [3/13] Writing /etc/systemd/system/qubes-netbird-dns.service in '$DISPVM_TEMPL_NAME' ..."
-qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
-set -euo pipefail
+# DNS forwarding unit (per the Qubes forum guide).
 cat > /etc/systemd/system/qubes-netbird-dns.service <<'UNIT'
 [Unit]
 Description=NetBird DNS updater for Qubes
@@ -130,32 +128,48 @@ ExecStop=/usr/bin/qubes-netbird-dns.sh stop
 WantedBy=multi-user.target
 UNIT
 chmod 0644 /etc/systemd/system/qubes-netbird-dns.service
-EOF
 
-# ---- Step 4: qubes-netbird-dns.sh helper (guide's script, bug fixed) -------
-# The guide's script contains `if [ -z "netbird_dns" ]`, which is always true
-# string; corrected to `-z "$netbird_dns"`.
-echo "=> [4/13] Writing /usr/bin/qubes-netbird-dns.sh in '$DISPVM_TEMPL_NAME' ..."
-qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
-set -euo pipefail
+# Helper: forward all DNS through the netbird internal IP.
+# Compared with the guide's script: `[ -z "netbird_dns" ]` (missing $, always
+# true) is fixed to `[ -z "$netbird_dns" ]`, and a null/empty jq result is
+# guarded instead of producing "nameserver null".
 cat > /usr/bin/qubes-netbird-dns.sh <<'HELPER'
 #!/bin/bash
 # Based on the Qubes forum guide's qubes-netbird-dns.sh
 set -u
 
 start() {
-    netbird_dns=$(jq -r '.DNS' /var/lib/netbird/managed-state.json 2>/dev/null || true)
-    # FIXED: original guide had `[ -z "netbird_dns" ]` (missing $)
+    netbird_dns=$(netbird status --json | jq -r '.netbirdIp' | cut -d'/' -f1)
     if [ -z "$netbird_dns" ] || [ "$netbird_dns" = "null" ]; then
-        echo "No DNS from netbird state, skipped." >&2
-        return 0
+        echo "Failed to get address from NetBird, cannot continue." >&2
+        return 1
     fi
-    sed -i "/netbird.*dns/d" /etc/resolv.conf
-    echo "nameserver $netbird_dns #netbird dns" >> /etc/resolv.conf
+    primary_dns=$(/usr/bin/qubesdb-read /qubes-primary-dns 2>/dev/null || true)
+    secondary_dns=$(/usr/bin/qubesdb-read /qubes-secondary-dns 2>/dev/null || true)
+    if [ -z "$primary_dns" ] && [ -z "$secondary_dns" ]; then
+        echo "No primary or secondary DNS servers configured, cannot continue." >&2
+        return 1
+    fi
+    # Flush the current dnat-dns chain
+    nft flush chain ip qubes dnat-dns
+    for dns in $primary_dns $secondary_dns; do
+        nft add rule ip qubes dnat-dns ip daddr "$dns" udp dport 53 dnat to "$netbird_dns"
+        nft add rule ip qubes dnat-dns ip daddr "$dns" tcp dport 53 dnat to "$netbird_dns"
+    done
+    nft add rule ip qubes custom-input iifname == "vif*" udp dport 53 counter accept
+    nft add rule ip qubes custom-input iifname == "vif*" tcp dport 53 counter accept
 }
 
 stop() {
-    sed -i "/netbird.*dns/d" /etc/resolv.conf
+    primary_dns=$(/usr/bin/qubesdb-read /qubes-primary-dns 2>/dev/null || true)
+    secondary_dns=$(/usr/bin/qubesdb-read /qubes-secondary-dns 2>/dev/null || true)
+    nft flush chain ip qubes dnat-dns
+    for dns in $primary_dns $secondary_dns; do
+        nft add rule ip qubes dnat-dns ip daddr "$dns" udp dport 53 dnat to "$dns"
+        nft add rule ip qubes dnat-dns ip daddr "$dns" tcp dport 53 dnat to "$dns"
+    done
+    nft add rule ip qubes custom-input iifname == "vif*" udp dport 53 counter accept
+    nft add rule ip qubes custom-input iifname == "vif*" tcp dport 53 counter accept
 }
 
 case "${1:-}" in
@@ -165,68 +179,79 @@ case "${1:-}" in
 esac
 HELPER
 chmod 0755 /usr/bin/qubes-netbird-dns.sh
-EOF
 
-# ---- Step 5: enable the unit in the template -------------------------------
-echo "=> [5/13] Enabling qubes-netbird-dns.service in '$DISPVM_TEMPL_NAME' ..."
-qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
-set -euo pipefail
+systemctl enable netbird.service
 systemctl enable qubes-netbird-dns.service
 EOF
 
-# ---- Step 6: bind-dirs so NetBird state persists in dispvms ----------------
-echo "=> [6/13] Configuring qubes bind-dirs for /var/{lib,log,cache}/netbird in '$DISPVM_TEMPL_NAME' ..."
-qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
+echo "=> [2/9] Shutting down '$NETBIRD_TEMPLATE' to commit root volume ..."
+qvm-shutdown --wait -- "$NETBIRD_TEMPLATE"
+
+# ---- Step 3: AppVM disposable template (inherits the TemplateVM root) -------
+# Must be AppVM class with template_for_dispvms=True (Qubes requirement for
+# DispVMs). Its /rw (private volume) is persistent and inherited by the
+# disposables spawned from it — that is where /rw config goes.
+if qube_exists "$DVM_TEMPL_NAME"; then
+  echo "=> [3/9] Disposable template '$DVM_TEMPL_NAME' already exists, reusing."
+else
+  echo "=> [3/9] Creating disposable template '$DVM_TEMPL_NAME' (template: $NETBIRD_TEMPLATE) ..."
+  qvm-create --template "$NETBIRD_TEMPLATE" --label black "$DVM_TEMPL_NAME"
+fi
+qvm-prefs "$DVM_TEMPL_NAME" template_for_dispvms true
+qvm-features "$DVM_TEMPL_NAME" appmenus-dispvm 1
+
+# ---- Step 4: /rw config in the AppVM disposable template --------------------
+# /rw lives on the private volume, which is persistent for AppVMs and is what
+# spawned disposables inherit. Bind-dirs makes the netbird state dirs survive
+# DispVM restarts; the firewall script blocks leaks when the VPN is down.
+echo "=> [4/9] Writing /rw config (bind-dirs + leak block) in '$DVM_TEMPL_NAME' ..."
+qvm-run --pass-io -u root "$DVM_TEMPL_NAME" -- bash -s <<'EOF'
 set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 mkdir -p /rw/bind-dirs/var/lib/netbird /rw/bind-dirs/var/log/netbird /rw/bind-dirs/var/cache/netbird
 mkdir -p /rw/config/qubes-bind-dirs.d
 cat > /rw/config/qubes-bind-dirs.d/50_netbird.conf <<'CONF'
 binds+=( '/var/lib/netbird' '/var/log/netbird' '/var/cache/netbird' )
 CONF
 chmod 0644 /rw/config/qubes-bind-dirs.d/50_netbird.conf
-EOF
 
-# ---- Step 7: nftables leak-block rules (optional per guide, included) ------
-echo "=> [7/13] Writing qubes-firewall-user-script (nftables leak block) in '$DISPVM_TEMPL_NAME' ..."
-qvm-run --pass-io -u root "$DISPVM_TEMPL_NAME" -- bash -s <<'EOF'
-set -euo pipefail
-mkdir -p /rw/config
 cat > /rw/config/qubes-firewall-user-script <<'NFT'
 #!/bin/sh
+# Block traffic from being forwarded out eth0 when the VPN is down
+# (leak protection, per the Qubes forum guide).
 nft add rule ip qubes custom-forward oifname eth0 counter drop
 nft add rule ip6 qubes custom-forward oifname eth0 counter drop
 NFT
 chmod 0755 /rw/config/qubes-firewall-user-script
 EOF
 
-# ---- Step 8: shut down the DispVM template ----------------------------------
-echo "=> [8/13] Shutting down '$DISPVM_TEMPL_NAME' ..."
-qvm-shutdown -- "$DISPVM_TEMPL_NAME"
+echo "=> [4/9] Shutting down '$DVM_TEMPL_NAME' to commit /rw config ..."
+qvm-shutdown --wait -- "$DVM_TEMPL_NAME"
 
-# ---- Step 9: create and configure the disposable NetBird qube ----------------
-# Created only after the template is fully configured, so it inherits a
-# finished state.
+# ---- Step 5: the disposable NetBird qube ------------------------------------
+# Created only now, after both the template root and the dvm /rw are final.
 if qube_exists "$NETBIRD_VM_NAME"; then
-  echo "=> [9/13] Qube '$NETBIRD_VM_NAME' already exists, reusing."
+  echo "=> [5/9] Qube '$NETBIRD_VM_NAME' already exists, reusing."
 else
-  echo "=> [9/13] Creating disposable qube '$NETBIRD_VM_NAME' from '$DISPVM_TEMPL_NAME' ..."
-  qvm-create --disp --template "$DISPVM_TEMPL_NAME" "$NETBIRD_VM_NAME"
+  echo "=> [5/9] Creating disposable qube '$NETBIRD_VM_NAME' from '$DVM_TEMPL_NAME' ..."
+  qvm-create --disp --template "$DVM_TEMPL_NAME" "$NETBIRD_VM_NAME"
 fi
 
 # Service flag for qubes-netbird-dns (makes /var/run/qubes-service/
-# qubes-netbird-dns appear, which the unit's ConditionPathExists checks).
+# qubes-netbird-dns appear in the qube; the unit's ConditionPathExists
+# checks for it).
 qvm-features "$NETBIRD_VM_NAME" netbird-dns 1
 
 # Provides network
-echo "=> [9/13] Enabling 'Provides network' on '$NETBIRD_VM_NAME' ..."
+echo "=> [5/9] Enabling 'Provides network' on '$NETBIRD_VM_NAME' ..."
 qvm-prefs "$NETBIRD_VM_NAME" provides_network true
 
-# ---- Step 10: run netbird up (setup key) ------------------------------------
-echo "=> [10/13] Starting '$NETBIRD_VM_NAME' ..."
-qvm-start --skip-if-running "$NETBIRD_VM_NAME"
+# ---- Step 6: start and enroll ------------------------------------------------
+echo "=> [6/9] Starting '$NETBIRD_VM_NAME' ..."
+qvm-start -- "$NETBIRD_VM_NAME"
 
 if [ -n "$NETBIRD_SETUP_KEY" ]; then
-  echo "=> [10/13] Enrolling '$NETBIRD_VM_NAME' into NetBird (key not shown) ..."
+  echo "=> [6/9] Enrolling '$NETBIRD_VM_NAME' into NetBird (key not shown) ..."
   # Disable xtrace so the key never appears in any log; pass via stdin env.
   qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<EOF
 set +x
@@ -235,19 +260,21 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 netbird up -s "${NETBIRD_SETUP_KEY}"
 EOF
 else
-  echo "=> [10/13] No setup key supplied. Run this yourself inside the qube:"
+  echo "=> [6/9] No setup key supplied. Run this yourself inside the qube:"
   echo "       qvm-run \"$NETBIRD_VM_NAME\" term"
   echo "       then:  sudo netbird up -s <SETUP_KEY>   (or without -s to use a browser login)"
 fi
 
-# ---- Steps 11-13: summary ----------------------------------------------------
+# ---- Steps 7-9: summary -----------------------------------------------------
 echo
 echo "===== Summary ====="
-echo "  DispVM template : $DISPVM_TEMPL_NAME (AppVM clone of $TEMPLATE_VM, template_for_dispvms=true)"
-echo "  NetBird qube    : $NETBIRD_VM_NAME (disposable, providing network)"
+echo "  TemplateVM          : $NETBIRD_TEMPLATE (clone of $TEMPLATE_VM; holds packages + unit)"
+echo "  Disposable template : $DVM_TEMPL_NAME (AppVM, template_for_dispvms=true; holds /rw config)"
+echo "  NetBird qube        : $NETBIRD_VM_NAME (disposable, providing network)"
 echo
 echo "Verify from the qube or dom0:"
-echo "  qvm-run $NETBIRD_VM_NAME 'netbird status'"
+echo "  qvm-run $NETBIRD_VM_NAME -- 'netbird status'"
+echo "  qvm-run $NETBIRD_VM_NAME -- 'systemctl status qubes-netbird-dns'"
 echo
 echo "The setup key was sourced from \$NETBIRD_SETUP_KEY / NETBIRD_SETUP_KEY_FILE."
 echo "Nothing secret was stored in this script; do not hard-code keys in files."
