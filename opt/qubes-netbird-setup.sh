@@ -36,7 +36,9 @@
 #   - first line of the file pointed to by NETBIRD_SETUP_KEY_FILE
 # If empty, the script prints instructions for running `netbird up` yourself.
 # Enrollment always uses `netbird up --no-browser --setup-key ...` — key only,
-# no SSO/browser flow (a browser inside sys-netbird halts provisioning).
+# no SSO/browser flow (a browser inside sys-netbird halts provisioning). It
+# must run as root (sudo) because of --allow-server-ssh, which the script
+# already does via `qvm-run -u root`.
 # NOTE: never hard-code the setup key into this file.
 #
 set -euo pipefail
@@ -272,12 +274,21 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
 set +x
 set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-netbird up --no-browser --setup-key "${NETBIRD_SETUP_KEY}"
+netbird up --no-browser --setup-key "${NETBIRD_SETUP_KEY}" \
+  --wireguard-port 51821 \
+  --disable-ssh-auth \
+  --enable-ssh-local-port-forwarding \
+  --enable-ssh-remote-port-forwarding \
+  --enable-ssh-sftp \
+  --enable-ssh-root \
+  --allow-server-ssh
 EOF
 else
   echo "=> [6/9] No setup key supplied. Run this yourself inside the qube:"
   echo "       qvm-run \"$NETBIRD_VM_NAME\" term"
-  echo "       then:  sudo netbird up --no-browser --setup-key <SETUP_KEY>"
+  echo "       then:  sudo netbird up --no-browser --setup-key <SETUP_KEY> \\"
+  echo "         --wireguard-port 51821 --disable-ssh-auth --enable-ssh-local-port-forwarding \\"
+  echo "         --enable-ssh-remote-port-forwarding --enable-ssh-sftp --enable-ssh-root --allow-server-ssh"
 fi
 
 # ---- Steps 7-9: summary -----------------------------------------------------
