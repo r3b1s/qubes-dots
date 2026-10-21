@@ -4,7 +4,7 @@
 (defcfg
   process-unmapped-keys yes
   concurrent-tap-hold yes
-  ;; Only grab the physical keyboard in sys-usb; leave mice / power keys alone.
+  ;; Only grab the physical keyboard; leave mice / power keys alone.
   linux-dev-names-include (
     "AT Translated Set 2 keyboard"
   )

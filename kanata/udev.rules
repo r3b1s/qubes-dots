@@ -1,0 +1,4 @@
+# Installed by install-kanata-dom0.sh to /etc/udev/rules.d/99-kanata-uinput.rules.
+# /dev/uinput is opened by the kanata user (in the uinput group) to create the
+# virtual keyboard. static_node keeps the node in place even before the first open.
+KERNEL=="uinput", MODE="0660", GROUP="uinput", OPTIONS+="static_node=uinput"

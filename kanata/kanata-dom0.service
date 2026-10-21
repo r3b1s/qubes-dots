@@ -1,14 +1,48 @@
+# Installed by install-kanata-dom0.sh to /etc/systemd/system/kanata.service (root:root 0644).
+# A unit under /etc overrides any packaged or older kanata.service of the same name.
 [Unit]
-Description=Kanata keyboard remapper (dom0)
+Description=kanata keyboard remapper (dom0)
 Documentation=https://github.com/jtroo/kanata
-After=local-fs.target
+# The keyboard nodes exist once udev has coldplugged them, and /dev/uinput once
+# the uinput module is loaded (modules-load.conf).
+After=systemd-udev-trigger.service systemd-modules-load.service
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStartPre=/sbin/modprobe uinput
-ExecStart=/usr/local/bin/kanata --no-wait -c /etc/kanata/enthium.kbd
+User=kanata
+Group=kanata
+SupplementaryGroups=input uinput
+# A config kanata rejects fails here, before it grabs any keyboard.
+# Note: ExecStartPre runs as the kanata user, so no modprobe here — uinput is
+# loaded via systemd-modules-load.service.
+ExecStartPre=/usr/local/bin/kanata --check --cfg /etc/kanata/enthium.kbd
+ExecStart=/usr/local/bin/kanata --cfg /etc/kanata/enthium.kbd --no-wait
 Restart=on-failure
-RestartSec=3
+RestartSec=2
+
+# Least privilege: no root, no capabilities, a read-only system and no home directory.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# Only the keyboard event nodes and /dev/uinput are reachable; every other device
+# is denied.
+DevicePolicy=closed
+DeviceAllow=char-input rw
+DeviceAllow=/dev/uinput rw
 
 [Install]
 WantedBy=multi-user.target
