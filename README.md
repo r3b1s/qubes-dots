@@ -1,7 +1,6 @@
 # qubes-dots
 
-i3wm + dmenu + dunst + i3lock port of the hyprland keybinding setup from
-[omarchy-overrides](../omarchy-overrides), targeting **dom0** on Qubes OS.
+i3wm + dmenu + dunst + i3lock config for **dom0** on Qubes OS.
 These are portable dots for contiguous *functionality*, not a port of the
 rice.
 
@@ -18,7 +17,7 @@ the whole `Dotfiles` directory back into dom0 — see `dom0-clone-dots.sh` for
 the equivalent script form:
 
 ```bash
-VM=personal; DOTS=/home/user/Dotfiles; CLONE_TARS="https://<your-repo-url>"; qvm-run --pass-io "$VM" "sudo dnf install -y git" && qvm-run --pass-io "$VM" "mkdir -p $DOTS" && IFS=',' read -ra U <<< "$CLONE_TARS" && for u in "${U[@]}"; do qvm-run --pass-io "$VM" "git -C $DOTS clone '$u'"; done && qvm-run --pass-io "$VM" "tar -cf - -C $(dirname "$DOTS") $(basename "$DOTS")" | tar -xf - -C "$HOME"
+VM=personal; DOTS=/home/user/Dotfiles; CLONE_TARS="https://github.com/r3b1s/qubes-dots"; qvm-run --pass-io "$VM" "sudo dnf install -y git" && qvm-run --pass-io "$VM" "mkdir -p $DOTS" && IFS=',' read -ra U <<< "$CLONE_TARS" && for u in "${U[@]}"; do qvm-run --pass-io "$VM" "git -C $DOTS clone '$u'"; done && qvm-run --pass-io "$VM" "tar -cf - -C $(dirname "$DOTS") $(basename "$DOTS")" | tar -xf - -C "$HOME"
 ```
 
 Edit `CLONE_TARS` to your own repo URL(s) first. Then run `./install.sh`
