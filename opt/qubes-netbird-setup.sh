@@ -69,7 +69,12 @@ if qube_exists "$DISPVM_TEMPL_NAME"; then
   echo "=> [1/14] DispVM template '$DISPVM_TEMPL_NAME' already exists, reusing."
 else
   echo "=> [1/14] Cloning template '$TEMPLATE_VM' -> '$DISPVM_TEMPL_NAME' (plain clone) ..."
-  qvm-clone "$TEMPLATE_VM" "$DISPVM_TEMPL_NAME"
+  qvm-clone --class AppVM "$TEMPLATE_VM" "$DISPVM_TEMPL_NAME"
+
+  # A DispVM's template must be an AppVM with template_for_dispvms=True
+  # (note plural). Error otherwise: "template for disposable (tpl-netbird)
+  # needs to be an AppVM with template_for_dispvms=True".
+  qvm-prefs "$DISPVM_TEMPL_NAME" template_for_dispvms true
 fi
 
 # ---- Step 2: disposable NetBird qube ---------------------------------------
@@ -77,7 +82,7 @@ if qube_exists "$NETBIRD_VM_NAME"; then
   echo "=> [2/14] Qube '$NETBIRD_VM_NAME' already exists, reusing."
 else
   echo "=> [2/14] Creating disposable qube '$NETBIRD_VM_NAME' ..."
-  qvm-create --disp --property template_for_dispvm=true --template "$DISPVM_TEMPL_NAME" "$NETBIRD_VM_NAME"
+  qvm-create --disp --template "$DISPVM_TEMPL_NAME" "$NETBIRD_VM_NAME"
 fi
 
 # ---- Step 3: enable qubes-netbird-dns service flag -------------------------
@@ -226,7 +231,7 @@ echo "=> [12/14] (netbird.service already enabled in template during install)"
 # ---- Step 14: summary -------------------------------------------------------
 echo
 echo "===== Summary ====="
-echo "  DispVM template : $DISPVM_TEMPL_NAME (plain qvm-clone of $TEMPLATE_VM, still TemplateVM class)"
+echo "  DispVM template : $DISPVM_TEMPL_NAME (AppVM clone of $TEMPLATE_VM, template_for_dispvms=true)"
 echo "  NetBird qube    : $NETBIRD_VM_NAME (disposable, providing network)"
 echo
 echo "Verify from the qube or dom0:"
