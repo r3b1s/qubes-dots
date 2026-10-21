@@ -97,6 +97,19 @@ fi
 # Packages, the DNS unit and the helper script live in /usr and /etc, i.e. on
 # the root volume. They must be installed in a TemplateVM to survive its
 # shutdown and reach tpl-derived qubes.
+
+# Templates have no netvm by default and resolve DNS through their netvm; a
+# template with netvm=none cannot reach pkgs.netbird.io (curl would fail with
+# "could not resolve host"). Fail loudly instead of letting the install limp
+# along — otherwise the qube is left without netbird yet marked provisioned.
+_tpl_netvm=$(qvm-prefs "$NETBIRD_TEMPLATE" netvm)
+if [ -z "$_tpl_netvm" ]; then
+  echo "ERROR: '$NETBIRD_TEMPLATE' has no netvm; templates need one (e.g. sys-firewall) to fetch packages." >&2
+  exit 1
+fi
+echo "=> [2/9] '$NETBIRD_TEMPLATE' netvm: $_tpl_netvm"
+unset _tpl_netvm
+
 echo "=> [2/9] Installing netbird packages + DNS unit in '$NETBIRD_TEMPLATE' ..."
 qvm-run --pass-io -u root "$NETBIRD_TEMPLATE" -- bash -s <<'EOF'
 set -euo pipefail
