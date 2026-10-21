@@ -231,6 +231,7 @@ if [ -n "$NETBIRD_SETUP_KEY" ]; then
   qvm-run --pass-io -u root "$NETBIRD_VM_NAME" -- bash -s <<EOF
 set +x
 set -euo pipefail
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 netbird up -s "${NETBIRD_SETUP_KEY}"
 EOF
 else
