@@ -1,8 +1,6 @@
 # qubes-dots
 
 i3wm + dmenu + dunst + i3lock config for **dom0** on Qubes OS.
-These are portable dots for contiguous *functionality*, not a port of the
-rice.
 
 Dom0 is meant to stay free of untrusted application code, so the active
 config launches no desktop applications locally: every app keybind runs its
