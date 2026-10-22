@@ -127,7 +127,8 @@ silently dom0-equivalent (see the Admin API report in
 | policy files | none; `ansible.builtin.template` in dom0 only | `file.managed` in dom0 |
 | check mode | no | `test=True` (imperfect, #9279) |
 
-Every operation in `opt/qubes-qubesdev-setup.sh` / `opt/qubes-netbird-setup.sh`
+Every operation in `opt/qubes-qubesdev-setup.sh` / `opt/qubes-tpl-lolterm.sh`
+/ `opt/qubes-workbench-setup.sh` / `opt/qubes-netbird-setup.sh`
 (create, clone, prefs, features, service, start/shutdown, run) maps onto
 the `qube` module plus the connection plugin. Firewall rules would still
 need `qvm-firewall` or Salt.

@@ -72,7 +72,7 @@ from a dedicated qube. See [ansible.md](ansible.md) and
 - **Management disposable** (`qubesctl --skip-dom0 --targets=…` or
   qubes-ansible's proxy): declarative and idempotent, nothing installed in
   the target, dom0 never parses target output.
-- **Self-configuring template** (what `qubes-qubesdev-setup.sh` does with
+- **Self-configuring template** (what `opt/qubes-tpl-lolterm.sh` does with
   lolterm): dom0 `qvm-run`s a fixed bootstrap command and the template
   fetches through the updates proxy. dom0 sends but never parses — good —
   but it's imperative; wrap it in a `creates:`/`unless:` guard if moved

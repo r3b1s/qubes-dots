@@ -13,8 +13,8 @@
 #
 # Variables (edit here or override via environment):
 #   QUBE_NAME          qube to create/reuse (default: qubesdev)
-#   BASE_TEMPLATE      template to clone (default: fedora-44-xfce)
-#   TEMPLATE_VM        lolterm template, cloned from BASE_TEMPLATE if missing
+#   BASE_TEMPLATE      base template for TEMPLATE_VM (default: fedora-44-xfce)
+#   TEMPLATE_VM        lolterm template, provisioned by ./qubes-tpl-lolterm.sh
 #                      (default: tpl-fedora-44-xfce-lolterm)
 #   LOLTERM_REPO       lolterm git URL (default: https://github.com/r3b1s/lolterm.git)
 #   LOLTERM_REF        branch or tag to install (default: main)
@@ -38,11 +38,15 @@
 #
 # Template (lolterm):
 #   TEMPLATE_VM is a clone of BASE_TEMPLATE with lolterm's install-on-qubes.sh
-#   run inside it. dom0 only starts the template and sends it a short command;
-#   the template clones lolterm itself through the Qubes updates proxy and stays
-#   offline (no netvm). lolterm puts per-user config in /etc/skel, which Qubes
-#   copies into a qube's home only when the qube is created: a reused qube
-#   keeps its existing home.
+#   run inside it. Provisioning it is delegated to ./qubes-tpl-lolterm.sh (the
+#   BASE_TEMPLATE, TEMPLATE_VM and LOLTERM_* settings above are forwarded to
+#   it): this script runs it when TEMPLATE_VM is missing, or when
+#   LOLTERM_REINSTALL=1 asks for a fresh lolterm install. Run
+#   qubes-tpl-lolterm.sh on its own to build or refresh the template without
+#   touching any qube. The template clones lolterm itself through the Qubes
+#   updates proxy and stays offline (no netvm). lolterm puts per-user config
+#   in /etc/skel, which Qubes copies into a qube's home only when the qube is
+#   created: a reused qube keeps its existing home.
 #
 # Why the IP is pinned where it is:
 #   Qubes derives an unset `ip` from the qube's qid (10.137.<hi>.<lo>), and
@@ -94,7 +98,7 @@ INGRESS_FROM="${INGRESS_FROM:-}"
 SSH_AUTHORIZED_KEYS_FILE="${SSH_AUTHORIZED_KEYS_FILE:-}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-  sed -n '2,74p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,79p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -181,59 +185,30 @@ if [ -n "${INGRESS_TCP_PORTS// /}" ]; then
   fi
 fi
 
-# install-on-qubes.sh arguments, quoted for the shell inside the template.
-read -r -a _flag_words <<<"$LOLTERM_FLAGS"
-[ -n "$LOLTERM_GIT_NAME" ] && _flag_words+=(--git-name "$LOLTERM_GIT_NAME")
-[ -n "$LOLTERM_GIT_EMAIL" ] && _flag_words+=(--git-email "$LOLTERM_GIT_EMAIL")
-_install_args=
-for _w in "${_flag_words[@]}"; do
-  _install_args+=" $(printf '%q' "$_w")"
-done
-unset _w _flag_words
+# ---- Step 2: lolterm template (qubes-tpl-lolterm.sh) -----------------------
+# The template is its own provisionable unit; see ./qubes-tpl-lolterm.sh. Run
+# it here only when the template is missing, or when LOLTERM_REINSTALL=1 asks
+# for a fresh lolterm install; it clones BASE_TEMPLATE and runs lolterm's
+# install-on-qubes.sh itself.
+_tpl_script="$(cd -- "$(dirname -- "$0")" && pwd)/qubes-tpl-lolterm.sh"
+[ -x "$_tpl_script" ] || { echo "ERROR: template provisioner not found: $_tpl_script" >&2; exit 1; }
 
-# ---- Step 2: lolterm template -----------------------------------------------
-_run_install=false
-if qube_exists "$TEMPLATE_VM"; then
+if qube_exists "$TEMPLATE_VM" && [ "$LOLTERM_REINSTALL" != 1 ]; then
   echo "=> [2/6] Template '$TEMPLATE_VM' already exists."
-  if [ "$LOLTERM_REINSTALL" = 1 ]; then
-    _run_install=true
-  else
-    echo "   Not re-running lolterm (set LOLTERM_REINSTALL=1 to do so)."
-  fi
+  echo "   Not re-running lolterm (set LOLTERM_REINSTALL=1 to do so)."
 else
-  if qube_running "$BASE_TEMPLATE"; then
-    echo "ERROR: '$BASE_TEMPLATE' is running; shut it down before cloning it." >&2
-    exit 1
-  fi
-  echo "=> [2/6] Cloning '$BASE_TEMPLATE' -> '$TEMPLATE_VM' ..."
-  qvm-clone "$BASE_TEMPLATE" "$TEMPLATE_VM"
-  _run_install=true
-fi
-
-if $_run_install; then
   if qube_exists "$QUBE_NAME" && qube_running "$QUBE_NAME"; then
     echo "   shutting down '$QUBE_NAME' so it picks up the new template root ..."
     qvm-shutdown --wait -- "$QUBE_NAME"
   fi
-  echo "=> [2/6] Installing lolterm ($LOLTERM_REF) in '$TEMPLATE_VM' via the updates proxy ..."
-  qvm-run --pass-io -u root "$TEMPLATE_VM" -- bash -s <<EOF
-set -euo pipefail
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-if [ ! -e /var/run/qubes-service/updates-proxy-setup ]; then
-    echo "ERROR: this template has no Qubes updates proxy (service updates-proxy-setup)." >&2
-    exit 1
+  echo "=> [2/6] Provisioning template '$TEMPLATE_VM' with $_tpl_script ..."
+  TEMPLATE_VM="$TEMPLATE_VM" BASE_TEMPLATE="$BASE_TEMPLATE" \
+    LOLTERM_REPO="$LOLTERM_REPO" LOLTERM_REF="$LOLTERM_REF" LOLTERM_FLAGS="$LOLTERM_FLAGS" \
+    LOLTERM_GIT_NAME="$LOLTERM_GIT_NAME" LOLTERM_GIT_EMAIL="$LOLTERM_GIT_EMAIL" \
+    LOLTERM_REINSTALL="$LOLTERM_REINSTALL" \
+    "$_tpl_script"
 fi
-export http_proxy=http://127.0.0.1:8082 https_proxy=http://127.0.0.1:8082
-command -v git >/dev/null || dnf install -y git
-src=\$(mktemp -d)
-trap 'rm -rf "\$src"' EXIT
-git clone --depth 1 --branch $(printf '%q' "$LOLTERM_REF") $(printf '%q' "$LOLTERM_REPO") "\$src"
-LOLTERM_INSTALLER_DIR="\$src" bash "\$src/install-on-qubes.sh"$_install_args
-EOF
-  echo "=> [2/6] Shutting down '$TEMPLATE_VM' to commit its root volume ..."
-  qvm-shutdown --wait -- "$TEMPLATE_VM"
-fi
-unset _run_install
+unset _tpl_script
 
 # ---- Step 3: create or reuse the qube -------------------------------------
 # Properties below take effect at the next start, so make sure it is down.
