@@ -44,7 +44,12 @@
 #   streams child output instead of drawing status lines. sudo is never
 #   prompted for: Qubes VMs have passwordless root, and the packages Hermes
 #   needs (libatomic) are already in the template. The desktop is built from
-#   source, which is the slow part of a fresh install.
+#   source, which is the slow part of a fresh install. Hermes ships no .desktop
+#   file on Linux, and Qubes builds the Applications tab and app menu from
+#   .desktop files, so this script writes
+#   ~/.local/share/applications/hermes-desktop.desktop (home is on /rw, so it
+#   survives the AppVM root reset). Reopen Settings → Applications, or press
+#   Refresh Applications, to pick it up.
 #
 set -euo pipefail
 umask 077
@@ -61,7 +66,7 @@ HERMES_SYSTEM_PKGS="${HERMES_SYSTEM_PKGS:-git curl tar coreutils gcc gcc-c++ mak
 HERMES_REINSTALL="${HERMES_REINSTALL:-0}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-  sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,53p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -107,7 +112,7 @@ _size_to_bytes() {
 }
 
 # ---- Step 1: validate inputs ------------------------------------------------
-echo "=> [1/5] Validating inputs ..."
+echo "=> [1/6] Validating inputs ..."
 case "$HERMES_CHANNEL" in
   stable|main) ;;
   *) echo "ERROR: HERMES_CHANNEL must be 'stable' or 'main', not '$HERMES_CHANNEL'." >&2; exit 1 ;;
@@ -134,14 +139,14 @@ _tpl_script="$(cd -- "$(dirname -- "$0")" && pwd)/qubes-tpl-lolterm.sh"
 [ -x "$_tpl_script" ] || { echo "ERROR: template provisioner not found: $_tpl_script" >&2; exit 1; }
 
 if qube_exists "$TEMPLATE_VM"; then
-  echo "=> [2/5] Template '$TEMPLATE_VM' already exists."
+  echo "=> [2/6] Template '$TEMPLATE_VM' already exists."
 else
-  echo "=> [2/5] Provisioning template '$TEMPLATE_VM' with $_tpl_script ..."
+  echo "=> [2/6] Provisioning template '$TEMPLATE_VM' with $_tpl_script ..."
   TEMPLATE_VM="$TEMPLATE_VM" "$_tpl_script"
 fi
 unset _tpl_script
 
-echo "=> [2/5] Ensuring hermes system packages in '$TEMPLATE_VM' ..."
+echo "=> [2/6] Ensuring hermes system packages in '$TEMPLATE_VM' ..."
 if qube_exists "$QUBE_NAME" && qube_running "$QUBE_NAME"; then
   echo "   shutting down '$QUBE_NAME' so it picks up the template change ..."
   qvm-shutdown --wait -- "$QUBE_NAME"
@@ -177,14 +182,14 @@ if qube_exists "$QUBE_NAME"; then
     exit 1
   fi
   unset _cls
-  echo "=> [3/5] AppVM '$QUBE_NAME' already exists, reusing (its home is kept)."
+  echo "=> [3/6] AppVM '$QUBE_NAME' already exists, reusing (its home is kept)."
   if qube_running "$QUBE_NAME"; then
     echo "   shutting down '$QUBE_NAME' ..."
     qvm-shutdown --wait -- "$QUBE_NAME"
   fi
   qvm-prefs "$QUBE_NAME" template "$TEMPLATE_VM"
 else
-  echo "=> [3/5] Creating AppVM '$QUBE_NAME' (template: $TEMPLATE_VM, label: $QUBE_LABEL) ..."
+  echo "=> [3/6] Creating AppVM '$QUBE_NAME' (template: $TEMPLATE_VM, label: $QUBE_LABEL) ..."
   qvm-create --template "$TEMPLATE_VM" --label "$QUBE_LABEL" "$QUBE_NAME"
 fi
 
@@ -196,10 +201,10 @@ if ! _cur_bytes=$(qvm-volume info "$QUBE_NAME:private" size) \
   exit 1
 fi
 if [ "$_cur_bytes" -lt "$_want_bytes" ]; then
-  echo "=> [3/5] Growing private volume of '$QUBE_NAME' to $QUBE_PRIVATE_SIZE ..."
+  echo "=> [3/6] Growing private volume of '$QUBE_NAME' to $QUBE_PRIVATE_SIZE ..."
   qvm-volume resize "$QUBE_NAME:private" "$QUBE_PRIVATE_SIZE"
 else
-  echo "=> [3/5] Private volume of '$QUBE_NAME' is already at least $QUBE_PRIVATE_SIZE."
+  echo "=> [3/6] Private volume of '$QUBE_NAME' is already at least $QUBE_PRIVATE_SIZE."
 fi
 unset _cur_bytes
 
@@ -220,10 +225,10 @@ else
 fi
 
 if $_hermes_present && [ "$HERMES_REINSTALL" != 1 ]; then
-  echo "=> [4/5] hermes already installed in '$QUBE_NAME'."
+  echo "=> [4/6] hermes already installed in '$QUBE_NAME'."
   echo "   Not running the installer (set HERMES_REINSTALL=1 to do so)."
 else
-  echo "=> [4/5] Installing hermes ($HERMES_CHANNEL) in '$QUBE_NAME' as '$QUBE_USER' ..."
+  echo "=> [4/6] Installing hermes ($HERMES_CHANNEL) in '$QUBE_NAME' as '$QUBE_USER' ..."
   echo "   (--non-interactive; the desktop build runs from source and takes a while)"
   qvm-run --pass-io -u "$QUBE_USER" "$QUBE_NAME" -- bash -s <<EOF
 set -euo pipefail
@@ -238,8 +243,37 @@ EOF
 fi
 unset _hermes_present
 
-# ---- Step 5: verify ---------------------------------------------------------
-echo "=> [5/5] Verifying hermes in '$QUBE_NAME' ..."
+# ---- Step 5: Qubes application entry ---------------------------------------
+# Qubes builds the Applications tab and app menu from .desktop files, and
+# hermes ships none on Linux. The entry goes in the user's home, which is on
+# /rw, so it survives the AppVM root reset. Exec names the wrapper by absolute
+# path because the Qubes launcher does not guarantee a login PATH.
+if $_expect_desktop; then
+  echo "=> [5/6] Writing the Hermes Desktop application entry ..."
+  qvm-run --pass-io -u "$QUBE_USER" "$QUBE_NAME" -- bash -s <<EOF
+set -euo pipefail
+export HOME=\$(getent passwd "\$(id -un)" | cut -d: -f6)
+apps="\$HOME/.local/share/applications"
+mkdir -p "\$apps"
+cat > "\$apps/hermes-desktop.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Hermes Desktop
+Comment=Hermes Agent desktop
+Exec=\$HOME/.local/bin/hermes desktop
+Icon=\$HOME/.hermes/hermes-agent/apps/desktop/assets/icon.png
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=true
+DESKTOP
+chmod 0644 "\$apps/hermes-desktop.desktop"
+EOF
+else
+  echo "=> [5/6] Desktop not requested; not writing an application entry."
+fi
+
+# ---- Step 6: verify ---------------------------------------------------------
+echo "=> [6/6] Verifying hermes in '$QUBE_NAME' ..."
 qvm-run --pass-io -u "$QUBE_USER" "$QUBE_NAME" -- bash -s <<EOF
 set -euo pipefail
 export HOME=\$(getent passwd "\$(id -un)" | cut -d: -f6)
@@ -251,6 +285,14 @@ version=\$(hermes --version) || fail "hermes --version failed"
 if [ '$_expect_desktop' = true ]; then
     [ -d "\$HOME/.hermes/hermes-agent/apps/desktop/release/linux-unpacked" ] \
         || fail "hermes desktop was not built"
+    entry="\$HOME/.local/share/applications/hermes-desktop.desktop"
+    [ -f "\$entry" ] || fail "desktop entry missing: \$entry"
+    grep -qx 'Exec=.*hermes desktop' "\$entry" || fail "desktop entry has no hermes Exec line"
+    if [ -x /etc/qubes-rpc/qubes.GetAppmenus ]; then
+        menus=\$(/etc/qubes-rpc/qubes.GetAppmenus 2>/dev/null || true)
+        printf '%s\n' "\$menus" | grep -q 'hermes-desktop.desktop' \
+            || fail "Qubes does not report hermes-desktop.desktop (entry not visible in Applications)"
+    fi
 fi
 echo "Verification OK: \$version" >&2
 EOF
@@ -267,6 +309,7 @@ else
 fi
 if $_expect_desktop; then
   echo "  Desktop  : built from source (hermes desktop)"
+  echo "  Menu     : ~/.local/share/applications/hermes-desktop.desktop"
 else
   echo "  Desktop  : not requested"
 fi
