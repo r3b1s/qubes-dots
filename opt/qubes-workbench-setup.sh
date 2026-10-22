@@ -17,6 +17,9 @@
 #                      if missing (default: tpl-fedora-44-xfce-lolterm)
 #   QUBE_USER          account that owns the hermes install (default: user)
 #   QUBE_LABEL         label for a newly created qube (default: purple)
+#   QUBE_PRIVATE_SIZE  private volume size; grown if smaller, never shrunk
+#                      (default: 40G — Qubes' 2G default cannot hold the
+#                      desktop build and hermes' tool store)
 #   HERMES_CHANNEL     install channel, stable or main (default: stable)
 #   HERMES_FLAGS       install.sh flags; --non-interactive is always added
 #                      (default: --include-desktop)
@@ -51,18 +54,19 @@ QUBE_NAME="${QUBE_NAME:-workbench}"
 TEMPLATE_VM="${TEMPLATE_VM:-tpl-fedora-44-xfce-lolterm}"
 QUBE_USER="${QUBE_USER:-user}"
 QUBE_LABEL="${QUBE_LABEL:-purple}"
+QUBE_PRIVATE_SIZE="${QUBE_PRIVATE_SIZE:-40G}"
 HERMES_CHANNEL="${HERMES_CHANNEL:-stable}"
 HERMES_FLAGS="${HERMES_FLAGS:---include-desktop}"
 HERMES_SYSTEM_PKGS="${HERMES_SYSTEM_PKGS:-git curl tar coreutils gcc gcc-c++ make python3 libatomic}"
 HERMES_REINSTALL="${HERMES_REINSTALL:-0}"
 
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
-  sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,48p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
 # Dom0 tool check.
-for _cmd in qvm-create qvm-run qvm-prefs qvm-shutdown qvm-check qvm-ls; do
+for _cmd in qvm-create qvm-run qvm-prefs qvm-shutdown qvm-check qvm-ls qvm-volume; do
   if ! command -v "$_cmd" >/dev/null 2>&1; then
     echo "ERROR: required tool not found in dom0: $_cmd" >&2
     exit 1
@@ -73,6 +77,35 @@ unset _cmd
 qube_exists() { qvm-ls --raw-list | grep -qxF "$1"; }
 qube_running() { qvm-check --quiet --running -- "$1" 2>/dev/null; }
 
+# QUBE_PRIVATE_SIZE in bytes, matching qubesadmin.utils.parse_size: G/GB are
+# decimal (40G = 40e9) and only Gi/GiB are binary. Plain digits are bytes.
+_size_to_bytes() {
+  local v num unit
+  v=$(printf '%s' "$1" | tr -d '[:blank:]' | tr '[:lower:]' '[:upper:]')
+  case "$v" in
+    ''|*[!0-9]*)
+      for unit in K KB M MB G GB KI KIB MI MIB GI GIB; do
+        case "$v" in
+          *"$unit")
+            num="${v%"$unit"}"
+            case "$num" in ''|*[!0-9]*) return 1 ;; esac
+            case "$unit" in
+              K|KB)    printf '%s' $(( num * 1000 )) ;;
+              M|MB)    printf '%s' $(( num * 1000000 )) ;;
+              G|GB)    printf '%s' $(( num * 1000000000 )) ;;
+              KI|KIB)  printf '%s' $(( num * 1024 )) ;;
+              MI|MIB)  printf '%s' $(( num * 1048576 )) ;;
+              GI|GIB)  printf '%s' $(( num * 1073741824 )) ;;
+            esac
+            return 0 ;;
+        esac
+      done
+      return 1 ;;
+    *)
+      printf '%s' "$v" ;;
+  esac
+}
+
 # ---- Step 1: validate inputs ------------------------------------------------
 echo "=> [1/5] Validating inputs ..."
 case "$HERMES_CHANNEL" in
@@ -80,6 +113,10 @@ case "$HERMES_CHANNEL" in
   *) echo "ERROR: HERMES_CHANNEL must be 'stable' or 'main', not '$HERMES_CHANNEL'." >&2; exit 1 ;;
 esac
 [ -n "$HERMES_SYSTEM_PKGS" ] || { echo "ERROR: HERMES_SYSTEM_PKGS is empty." >&2; exit 1; }
+_want_bytes=$(_size_to_bytes "$QUBE_PRIVATE_SIZE") || {
+  echo "ERROR: QUBE_PRIVATE_SIZE='$QUBE_PRIVATE_SIZE' is not a size (e.g. 40G)." >&2
+  exit 1
+}
 
 # install.sh arguments, quoted for the shell inside the qube.
 read -r -a _flag_words <<<"$HERMES_FLAGS"
@@ -151,6 +188,21 @@ else
   qvm-create --template "$TEMPLATE_VM" --label "$QUBE_LABEL" "$QUBE_NAME"
 fi
 
+# An AppVM starts with a 2 GiB private volume, which the desktop build and
+# hermes' tool store exhaust. Grow it (never shrink) while the qube is down.
+if ! _cur_bytes=$(qvm-volume info "$QUBE_NAME:private" size) \
+   || ! printf '%s' "$_cur_bytes" | grep -qE '^[0-9]+$'; then
+  echo "ERROR: cannot read the private volume size of '$QUBE_NAME'." >&2
+  exit 1
+fi
+if [ "$_cur_bytes" -lt "$_want_bytes" ]; then
+  echo "=> [3/5] Growing private volume of '$QUBE_NAME' to $QUBE_PRIVATE_SIZE ..."
+  qvm-volume resize "$QUBE_NAME:private" "$QUBE_PRIVATE_SIZE"
+else
+  echo "=> [3/5] Private volume of '$QUBE_NAME' is already at least $QUBE_PRIVATE_SIZE."
+fi
+unset _cur_bytes
+
 _netvm=$(qvm-prefs "$QUBE_NAME" netvm)
 if [ -z "$_netvm" ] || [ "$_netvm" = None ]; then
   echo "ERROR: '$QUBE_NAME' has no net qube; the hermes installer needs network." >&2
@@ -207,6 +259,7 @@ echo
 echo "===== Summary ====="
 echo "  Template : $TEMPLATE_VM (lolterm)"
 echo "  Qube     : $QUBE_NAME (AppVM)"
+echo "  Storage  : private volume at least $QUBE_PRIVATE_SIZE"
 if $_installed_this_run; then
   echo "  Hermes   : installed this run ($HERMES_CHANNEL) for '$QUBE_USER'"
 else
